@@ -1,0 +1,424 @@
+.appHost {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+  background-color: #1a1b1f;
+}
+
+/* Floating console toggle button */
+.consoleToggle {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(38, 40, 46, 0.85);
+  border: 1px solid rgba(80, 200, 255, 0.4);
+  border-radius: 30px;
+  color: #00f2fe;
+  padding: 10px 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  z-index: 100;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.consoleToggle:hover {
+  background: rgba(80, 200, 255, 0.15);
+  border-color: #00f2fe;
+  box-shadow: 0 4px 25px rgba(0, 242, 254, 0.25);
+  transform: translateY(-2px);
+}
+
+.consoleToggle:active {
+  transform: translateY(0);
+}
+
+/* Drawer Slider */
+.consoleDrawer {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 480px;
+  max-height: 80vh;
+  background-color: #1a1b1f;
+  border-top: 1px solid #34373f;
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.6);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  transform: translateY(100%);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.drawerOpen {
+  transform: translateY(0);
+}
+
+/* Header */
+.drawerHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 24px;
+  background-color: #202227;
+  border-bottom: 1px solid #34373f;
+}
+
+.drawerTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.closeBtn {
+  background: transparent;
+  border: none;
+  color: #8f9099;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 4px;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.closeBtn:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+  color: #ffffff;
+}
+
+/* Body Content */
+.drawerContent {
+  flex: 1;
+  display: flex;
+  padding: 24px;
+  gap: 24px;
+  min-height: 0; /* Important for scrollable child flex items */
+}
+
+@media (max-width: 768px) {
+  .drawerContent {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+}
+
+.consoleSection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.consoleSection:first-child {
+  width: 320px;
+}
+
+.consoleSection:last-child {
+  flex: 1;
+}
+
+.sectionTitle {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #ced4da;
+  text-transform: uppercase;
+}
+
+.sectionDesc {
+  font-size: 0.75rem;
+  color: #8f9099;
+  line-height: 1.4;
+}
+
+/* Inputs and Forms */
+.importControls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.fileUploadLabel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background-color: #26282e;
+  border: 1px dashed #4a4f5a;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #e1e2e6;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.2s, background-color 0.2s;
+}
+
+.fileUploadLabel:hover {
+  border-color: #00f2fe;
+  background-color: #2e313a;
+}
+
+.fileInputHidden {
+  display: none;
+}
+
+.urlInputRow {
+  display: flex;
+  gap: 8px;
+}
+
+.urlInput {
+  flex: 1;
+  background-color: #15161a;
+  border: 1px solid #34373f;
+  border-radius: 6px;
+  color: #ffffff;
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  outline: none;
+  min-width: 0;
+}
+
+.urlInput:focus {
+  border-color: #00f2fe;
+}
+
+.importBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background-color: #26282e;
+  border: 1px solid #34373f;
+  border-radius: 6px;
+  color: #e1e2e6;
+  padding: 0 14px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.importBtn:hover {
+  background-color: #4facfe;
+  border-color: #00f2fe;
+  color: white;
+}
+
+/* Saved JSON output styles */
+.jsonHeaderRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.copyBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid #34373f;
+  border-radius: 6px;
+  color: #8f9099;
+  padding: 6px 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.copyBtn:hover {
+  color: #ffffff;
+  border-color: #4a4f5a;
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+.jsonPreWrapper {
+  flex: 1;
+  background-color: #15161a;
+  border: 1px solid #34373f;
+  border-radius: 8px;
+  padding: 16px;
+  overflow: auto;
+  position: relative;
+  min-height: 0;
+}
+
+.jsonPre {
+  margin: 0;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: #a78bfa;
+}
+
+.jsonPlaceholder {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  text-align: center;
+  font-size: 0.8rem;
+  color: #8f9099;
+  line-height: 1.5;
+  padding: 0 40px;
+}
+
+/* Header Navbar Styles */
+.appHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 24px;
+  min-height: 50px;
+  height: 50px;
+  background-color: #111216;
+  border-bottom: 1px solid #202227;
+  z-index: 100;
+}
+
+.appBrand {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #4facfe;
+  letter-spacing: 0.5px;
+}
+
+.appNav {
+  display: flex;
+  gap: 8px;
+}
+
+.navItem {
+  background: transparent;
+  border: none;
+  color: #8f9099;
+  padding: 6px 16px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.navItem:hover {
+  color: #ffffff;
+  background: #202227;
+}
+
+.navItemActive {
+  color: #ffffff;
+  background: #4facfe;
+}
+
+.navItemActive:hover {
+  background: #3598f0;
+}
+
+/* Standalone Player Area */
+.playerModeContainer {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 40px;
+  overflow: hidden;
+  background-color: #15161a;
+  position: relative;
+}
+
+.uploadJsonCard {
+  width: 100%;
+  max-width: 500px;
+  background: #202227;
+  border: 2px dashed #34373f;
+  border-radius: 12px;
+  padding: 40px 30px;
+  text-align: center;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  transition: all 0.3s;
+}
+
+.uploadJsonCard:hover {
+  border-color: #4facfe;
+  box-shadow: 0 10px 40px rgba(79, 172, 254, 0.1);
+}
+
+.jsonIconWrapper {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: rgba(79, 172, 254, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #4facfe;
+  margin-bottom: 8px;
+}
+
+.cardTitle {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0;
+}
+
+.cardDesc {
+  font-size: 0.85rem;
+  color: #8f9099;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.uploadJsonBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  padding: 10px 24px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 242, 254, 0.3);
+  transition: transform 0.2s, box-shadow 0.2s;
+  outline: none;
+}
+
+.uploadJsonBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(0, 242, 254, 0.4);
+}
+
+.playerWrapper {
+  width: 100%;
+  max-width: 1200px;
+  height: 100%;
+  max-height: 675px;
+  position: relative;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #000000;
+}

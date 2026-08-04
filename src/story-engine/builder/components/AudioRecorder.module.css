@@ -1,0 +1,308 @@
+.audioWidgetContainer {
+  display: flex;
+  flex-direction: column;
+  background: #26282e;
+  border: 1px solid #34373f;
+  border-radius: 8px;
+  padding: 14px;
+  margin-top: 10px;
+  gap: 12px;
+}
+
+.widgetHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.iconPrimary {
+  color: #4facfe;
+}
+
+.activeAudioCard {
+  background: #1a1b1f;
+  border: 1px solid #34373f;
+  border-radius: 6px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.audioDetails {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.audioName {
+  font-size: 0.8rem;
+  color: #e1e2e6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 170px;
+}
+
+.audioDuration {
+  font-size: 0.75rem;
+  color: #8f9099;
+  font-family: monospace;
+}
+
+.audioActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.audioControl {
+  height: 32px;
+  flex: 1;
+  border-radius: 4px;
+}
+
+.deleteBtn {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+  border-radius: 6px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.deleteBtn:hover {
+  background: rgb(239, 68, 68);
+  color: #ffffff;
+}
+
+.recordingInterface {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #1a1b1f;
+  border: 1px dashed #4a4f5a;
+  border-radius: 6px;
+  padding: 16px;
+  min-height: 100px;
+}
+
+.idleState {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.recordStartBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #ff416c, #ff4b2b);
+  color: #ffffff;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  box-shadow: 0 4px 10px rgba(255, 75, 43, 0.3);
+}
+
+.recordStartBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px rgba(255, 75, 43, 0.4);
+}
+
+.uploadBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  border: 1px solid #34373f;
+  border-radius: 6px;
+  background: #26282e;
+  color: #ced4da;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.uploadBtn:hover {
+  background: #34373f;
+  color: #ffffff;
+}
+
+.recordingState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.pulsingMic {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: pulse 1.5s infinite ease-in-out;
+}
+
+.micIconPulsing {
+  color: #ef4444;
+}
+
+.timer {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #ffffff;
+  font-family: monospace;
+  letter-spacing: 1px;
+}
+
+.stopButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 6px;
+  background: rgba(239, 68, 68, 0.1);
+  color: #fca5a5;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.stopButton:hover {
+  background: #ef4444;
+  color: #ffffff;
+}
+
+.previewState {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.previewControls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.previewPlayBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #26282e;
+  border: 1px solid #34373f;
+  color: #e1e2e6;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.previewPlayBtn:hover {
+  background: #34373f;
+}
+
+.saveDeleteRow {
+  display: flex;
+  gap: 8px;
+}
+
+.saveBtn {
+  flex: 1;
+  background: #4facfe;
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.saveBtn:hover {
+  background: #00f2fe;
+}
+
+.discardBtn {
+  background: #26282e;
+  border: 1px solid #34373f;
+  color: #ced4da;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.discardBtn:hover {
+  background: #34373f;
+  color: #ffffff;
+}
+
+/* Slide Duration Controls styles */
+.durationControlSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.durationLabel {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  color: #ced4da;
+}
+
+.durationVal {
+  color: #4facfe;
+  font-weight: 600;
+}
+
+.durationSlider {
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: #34373f;
+  accent-color: #4facfe;
+  cursor: pointer;
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+  }
+  70% {
+    transform: scale(1.1);
+    box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+}
