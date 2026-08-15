@@ -422,3 +422,78 @@
   overflow: hidden;
   background: #000000;
 }
+
+/* PPTX import progress overlay */
+.importOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 12, 18, 0.82);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.importCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  min-width: 280px;
+  max-width: 90vw;
+  padding: 28px 32px;
+  background: rgba(38, 40, 46, 0.95);
+  border: 1px solid rgba(80, 200, 255, 0.35);
+  border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  color: #e8eaed;
+  text-align: center;
+}
+
+.importSpinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(80, 200, 255, 0.2);
+  border-top-color: #00f2fe;
+  border-radius: 50%;
+  animation: importSpin 0.8s linear infinite;
+}
+
+@keyframes importSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.importPercent {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #00f2fe;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.importMessage {
+  font-size: 0.9rem;
+  color: rgba(232, 234, 237, 0.85);
+  line-height: 1.4;
+  max-width: 320px;
+}
+
+.importBarTrack {
+  width: 100%;
+  height: 8px;
+  margin-top: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.importBarFill {
+  height: 100%;
+  background: linear-gradient(90deg, #00f2fe, #2f80ed);
+  border-radius: 999px;
+  transition: width 0.25s ease-out;
+}

@@ -31,6 +31,12 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
   const playerAudioRef = useRef<HTMLAudioElement | null>(null);
   const touchStartX = useRef<number | null>(null);
   const slideTimeline = useRef<gsap.core.Timeline | null>(null);
+  // Distinct animation start-times on the current slide, in order - each one is a
+  // "build step" (a PowerPoint click) that manual navigation should stop at.
+  const stepTimesRef = useRef<number[]>([]);
+  // "Play Sound" animation effect audio objects for the current slide, so they can be
+  // stopped/reset whenever the slide changes.
+  const slideSoundEffectsRef = useRef<HTMLAudioElement[]>([]);
 
   const baseWidth = 1200;
   const baseHeight = 675;
@@ -77,18 +83,42 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
     }
   }, [currentSlideIndex]);
 
+  // Play through the current slide's animations one build-step at a time, the way
+  // PowerPoint does: a click/space advances to the next animation start-time instead
+  // of immediately firing everything. Returns true if it consumed the input (i.e.
+  // there was another step to play), false if the slide has nothing left to animate
+  // and the caller should move to the next slide instead.
+  const advanceAnimationStep = useCallback((): boolean => {
+    const tl = slideTimeline.current;
+    const steps = stepTimesRef.current;
+    if (!tl || steps.length === 0) return false;
+    const t = tl.time();
+    const next = steps.find((s) => s > t + 0.01);
+    if (next === undefined) return false;
+    tl.tweenTo(next, { duration: Math.max(next - t, 0.05) });
+    return true;
+  }, []);
+
+  // Used for "move forward" inputs (space, the forward nav button, forward swipe).
+  // While in manual (non-autoplay) mode, this steps through animations first and
+  // only advances the slide once every build step has played.
+  const advanceOrNextSlide = useCallback(() => {
+    if (!isPlaying && advanceAnimationStep()) return;
+    goToNextSlide();
+  }, [isPlaying, advanceAnimationStep, goToNextSlide]);
+
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'ArrowRight') {
         if (story.direction === 'rtl') goToPrevSlide();
-        else goToNextSlide();
+        else advanceOrNextSlide();
       } else if (e.key === 'ArrowLeft') {
-        if (story.direction === 'rtl') goToNextSlide();
+        if (story.direction === 'rtl') advanceOrNextSlide();
         else goToPrevSlide();
       } else if (e.key === 'Space' || e.code === 'Space') {
         e.preventDefault();
-        goToNextSlide();
+        advanceOrNextSlide();
       } else if (e.key === 'Escape' && isFullscreen) {
         setIsFullscreen(false);
       }
@@ -96,7 +126,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [goToNextSlide, goToPrevSlide, isFullscreen, story.direction]);
+  }, [advanceOrNextSlide, goToPrevSlide, isFullscreen, story.direction]);
 
   // Narration audio controller and player sync (only controls audio play/pause states)
   useEffect(() => {
@@ -112,12 +142,12 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
       const audioObj = new Audio(slide.audio.src);
       playerAudioRef.current = audioObj;
 
-      // Play slide narration audio if autoplay is active
-      if (isPlaying) {
-        audioObj.play().catch((err) => {
-          console.warn('Playback of slide narration blocked:', err);
-        });
-      }
+      // Play the slide's narration audio as soon as the slide is shown, whether the
+      // person is stepping through manually or Autoplay is on - it was previously
+      // gated behind isPlaying, so it never played at all during manual navigation.
+      audioObj.play().catch((err) => {
+        console.warn('Playback of slide narration blocked:', err);
+      });
     }
 
     return () => {
@@ -126,7 +156,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
         playerAudioRef.current.src = '';
       }
     };
-  }, [currentSlideIndex, story.slides, isPlaying]);
+  }, [currentSlideIndex, story.slides]);
 
   // Unified autoplay transition timer (handles transition timing for both audio & non-audio slides)
   useEffect(() => {
@@ -182,6 +212,12 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
       slideTimeline.current.kill();
       slideTimeline.current = null;
     }
+    // Stop and release any "Play Sound" effect audio left over from the previous slide.
+    slideSoundEffectsRef.current.forEach((a) => {
+      a.pause();
+      a.src = '';
+    });
+    slideSoundEffectsRef.current = [];
 
     // Apply animations for current slide elements
     const slide = story.slides[currentSlideIndex];
@@ -198,7 +234,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
 
       // We wait for the DOM to paint so elements are available
       const renderTimer = setTimeout(() => {
-        const tl = gsap.timeline();
+        const tl = gsap.timeline({ paused: true });
         slideTimeline.current = tl;
 
         slide.elements.forEach((el) => {
@@ -225,6 +261,64 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
             }
           }
         });
+
+        // Schedule any "Play Sound" animation-effect cues at their build-step time.
+        // Preload so the first play() after a click isn't delayed by decoding.
+        (slide.animationSounds || []).forEach((cue) => {
+          if (!cue?.src) return;
+          const audioObj = new Audio();
+          audioObj.preload = 'auto';
+          audioObj.src = cue.src;
+          try {
+            audioObj.load();
+          } catch {
+            /* ignore */
+          }
+          slideSoundEffectsRef.current.push(audioObj);
+          tl.call(
+            () => {
+              try {
+                audioObj.pause();
+                audioObj.currentTime = 0;
+                const playPromise = audioObj.play();
+                if (playPromise && typeof playPromise.catch === 'function') {
+                  playPromise.catch(() => {
+                    // Autoplay can be blocked before the first user gesture.
+                  });
+                }
+              } catch {
+                /* ignore */
+              }
+            },
+            undefined,
+            Math.max(0, cue.startTime || 0)
+          );
+        });
+
+        // Record each distinct animation start-time as a build step boundary so manual
+        // navigation can stop after each one instead of firing everything at once. The
+        // timeline's total duration is appended as the final target - without it, the
+        // very last build step had nowhere to "stop at" and got skipped entirely.
+        const times = new Set<number>();
+        slide.elements.forEach((el) => {
+          if (el.animation) times.add(el.animation.startTime);
+        });
+        (slide.animationSounds || []).forEach((cue) => times.add(cue.startTime));
+        const sortedTimes = Array.from(times).sort((a, b) => a - b);
+        const totalDuration = tl.duration();
+        if (totalDuration > (sortedTimes[sortedTimes.length - 1] ?? -1) + 0.01) {
+          sortedTimes.push(totalDuration);
+        }
+        stepTimesRef.current = sortedTimes;
+
+        // In autoplay mode, run straight through like a normal video. Otherwise stay
+        // paused at the start (elements with animations render in their hidden
+        // "from" state) until the user clicks/presses space to reveal each step.
+        if (isPlaying) {
+          tl.play(0);
+        } else {
+          tl.pause(0);
+        }
       }, 50); // Small delay to guarantee elements exist in DOM
 
       return () => {
@@ -232,6 +326,18 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
       };
     }
   }, [currentSlideIndex, story.slides]);
+
+  // Keep the already-built timeline's play state in sync when the user toggles the
+  // play/pause button mid-slide, without rebuilding/replaying everything from scratch.
+  useEffect(() => {
+    const tl = slideTimeline.current;
+    if (!tl) return;
+    if (isPlaying) {
+      tl.play();
+    } else {
+      tl.pause();
+    }
+  }, [isPlaying]);
 
   // Fullscreen management
   const toggleFullscreen = () => {
@@ -277,10 +383,10 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
       if (diff > 0) {
         // Swiped left
         if (story.direction === 'rtl') goToPrevSlide();
-        else goToNextSlide();
+        else advanceOrNextSlide();
       } else {
         // Swiped right
-        if (story.direction === 'rtl') goToNextSlide();
+        if (story.direction === 'rtl') advanceOrNextSlide();
         else goToPrevSlide();
       }
     }
@@ -418,7 +524,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
       <div className={styles.bottomControlBar}>
         <button
           className={styles.navButton}
-          onClick={isRTL ? goToNextSlide : goToPrevSlide}
+          onClick={isRTL ? advanceOrNextSlide : goToPrevSlide}
           disabled={isRTL ? currentSlideIndex === story.slides.length - 1 : currentSlideIndex === 0}
         >
           <ChevronLeft size={24} />
@@ -430,7 +536,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
 
         <button
           className={styles.navButton}
-          onClick={isRTL ? goToPrevSlide : goToNextSlide}
+          onClick={isRTL ? goToPrevSlide : advanceOrNextSlide}
           disabled={isRTL ? currentSlideIndex === 0 : currentSlideIndex === story.slides.length - 1}
         >
           <ChevronRight size={24} />

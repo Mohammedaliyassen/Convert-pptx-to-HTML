@@ -40,6 +40,10 @@ function App() {
   const [imgUrlInput, setImgUrlInput] = useState('');
   const [copied, setCopied] = useState(false);
 
+  // PPTX import progress
+  const [importProgress, setImportProgress] = useState<number | null>(null);
+  const [importMessage, setImportMessage] = useState<string>('');
+
   // Standalone Player states
   const [standaloneStory, setStandaloneStory] = useState<Story | null>(null);
   const jsonFileInputRef = useRef<HTMLInputElement>(null);
@@ -82,13 +86,29 @@ function App() {
   const handlePptxImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    // Reset input so the same file can be selected again later
+    e.target.value = '';
+    setImportProgress(0);
+    setImportMessage('بدء استيراد PowerPoint...');
     try {
-      const importedStory = await importPptxFromFile(file);
+      const importedStory = await importPptxFromFile(file, (percent, message) => {
+        setImportProgress(percent);
+        if (message) setImportMessage(message);
+      });
       loadStory(importedStory);
       setIsConsoleOpen(false);
     } catch (err) {
       console.error('Error importing PPTX:', err);
-      alert('فشل استيراد ملف البوربوينت.');
+      const detail =
+        err instanceof Error
+          ? err.message
+          : typeof err === 'object' && err !== null && 'message' in err
+            ? String((err as { message: unknown }).message)
+            : 'خطأ غير معروف';
+      alert(`فشل استيراد ملف البوربوينت.\n${detail}`);
+    } finally {
+      setImportProgress(null);
+      setImportMessage('');
     }
   };
 
@@ -128,6 +148,23 @@ function App() {
 
   return (
     <div className={styles.appHost}>
+      {/* Full-screen loading overlay during PPTX import */}
+      {importProgress !== null && (
+        <div className={styles.importOverlay} role="status" aria-live="polite">
+          <div className={styles.importCard}>
+            <div className={styles.importSpinner} />
+            <div className={styles.importPercent}>{importProgress}%</div>
+            <div className={styles.importMessage}>{importMessage || 'جاري الاستيراد...'}</div>
+            <div className={styles.importBarTrack}>
+              <div
+                className={styles.importBarFill}
+                style={{ width: `${importProgress}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Top Header Navigation Bar */}
       <div className={styles.appHeader}>
         <div className={styles.appBrand}>Grafity Story Engine</div>

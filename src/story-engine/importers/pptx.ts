@@ -2,14 +2,33 @@ import JSZip from 'jszip';
 import type { Story, Slide, StoryElement, TextElement, ImageElement } from '../core/types';
 import { compressImageToBase64 } from '../utils/imageCompressor';
 
-// Helper to convert Blob to base64 Data URL
-const blobToDataURL = (blob: Blob): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (e) => resolve(e.target?.result as string);
-    reader.onerror = (err) => reject(err);
-    reader.readAsDataURL(blob);
-  });
+// Helper to convert Blob to base64 Data URL (avoids FileReader when possible)
+const blobToDataURL = async (blob: Blob): Promise<string> => {
+  // Prefer arrayBuffer path — more reliable than FileReader for large media
+  try {
+    const buffer = await blob.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    // Small chunks avoid "Maximum call stack size exceeded" with spread
+    const chunkSize = 0x2000;
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const end = Math.min(i + chunkSize, bytes.length);
+      for (let j = i; j < end; j++) {
+        binary += String.fromCharCode(bytes[j]);
+      }
+    }
+    const mime = blob.type || 'application/octet-stream';
+    return `data:${mime};base64,${btoa(binary)}`;
+  } catch {
+    // Fallback to FileReader
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target?.result as string);
+      reader.onerror = () =>
+        reject(reader.error || new Error('FileReader failed to read blob'));
+      reader.readAsDataURL(blob);
+    });
+  }
 };
 
 // Helper to check if an image covers the slide area (at least 85% of slide viewport)
@@ -63,8 +82,50 @@ const resolveSchemeColor = (schemeVal: string | null, isBgDark: boolean): string
   }
 };
 
-export const importPptxFromFile = async (file: File): Promise<Story> => {
+export type PptxProgressCallback = (percent: number, message?: string) => void;
+
+/** Yield to the browser so UI stays responsive and GC can run between heavy slides */
+const yieldToMain = (): Promise<void> =>
+  new Promise((resolve) => {
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => setTimeout(resolve, 0));
+    } else {
+      setTimeout(resolve, 0);
+    }
+  });
+
+export const importPptxFromFile = async (
+  file: File,
+  onProgress?: PptxProgressCallback
+): Promise<Story> => {
+  const report = (percent: number, message?: string) => {
+    if (onProgress) {
+      onProgress(Math.min(100, Math.max(0, Math.round(percent))), message);
+    }
+  };
+
+  // Adaptive quality based on PPTX file size (large decks need aggressive compression)
+  const fileSizeMB = file.size / (1024 * 1024);
+  const isLarge = fileSizeMB >= 15;
+  const isHuge = fileSizeMB >= 40;
+  const imgMaxEdge = isHuge ? 800 : isLarge ? 1000 : 1200;
+  const imgQuality = isHuge ? 0.55 : isLarge ? 0.65 : 0.75;
+  // Prefer JPEG only for fully opaque images; transparent PNGs always stay PNG
+  const preferJpegIfOpaque = isLarge;
+  // Skip embedding slide audio as base64 when the deck is already huge
+  const skipHeavyAudio = isHuge;
+
+  report(
+    2,
+    isHuge
+      ? `ملف كبير جداً (${Math.round(fileSizeMB)}MB) — ضغط قوي...`
+      : isLarge
+        ? `ملف كبير (${Math.round(fileSizeMB)}MB) — جاري التحسين...`
+        : 'جاري قراءة ملف PowerPoint...'
+  );
+
   const zip = await JSZip.loadAsync(file);
+  report(8, 'تم تحميل الأرشيف، جاري تحليل العرض...');
   const domParser = new DOMParser();
 
   // 1. Determine presentation dimensions (default to standard 16:9 widescreen in EMUs)
@@ -120,10 +181,27 @@ export const importPptxFromFile = async (file: File): Promise<Story> => {
       .concat(Array.from(parent.getElementsByTagName(`a:${tagName}`))) as Element[];
   };
 
-  // Process slides
-  for (let i = 0; i < slideFileNames.length; i++) {
+  // Direct (non-recursive) element children matching a tag name, used for walking
+  // the <p:timing> tree level-by-level instead of grabbing every descendant at once.
+  const directChildren = (parent: Element, tagName: string): Element[] => {
+    return Array.from(parent.childNodes).filter(
+      (node): node is Element => node.nodeType === 1 && (node as Element).localName === tagName
+    );
+  };
+
+  const totalSlides = slideFileNames.length;
+  if (totalSlides === 0) {
+    throw new Error('لم يتم العثور على شرائح صالحة لاستيرادها من ملف الـ PowerPoint.');
+  }
+
+  // Process slides (progress: 10% → 95%)
+  for (let i = 0; i < totalSlides; i++) {
     const slidePath = slideFileNames[i];
     const slideNum = slidePath.replace(/[^\d]/g, '');
+    const slideProgress = 10 + ((i / totalSlides) * 85);
+    report(slideProgress, `جاري معالجة الشريحة ${i + 1} من ${totalSlides}...`);
+
+    try {
     const slideXmlText = await zip.file(slidePath)?.async('string');
     
     if (!slideXmlText) continue;
@@ -225,33 +303,62 @@ export const importPptxFromFile = async (file: File): Promise<Story> => {
           const imageFile = zip.file(mediaPath);
           if (!imageFile) continue;
 
-          const imageBlob = await imageFile.async('blob');
-          const objectUrl = await compressImageToBase64(imageBlob, 1200, 1200, 0.75, mediaPath);
+          try {
+            const imageBlob = await imageFile.async('blob');
+            // Skip empty / tiny blobs
+            if (!imageBlob || imageBlob.size < 32) continue;
 
-          // Heuristic check: is this the very first element and does it fill the screen?
-          if (elementZIndex === 0 && isFullScreenBackground(scaledX, scaledY, scaledW, scaledH, targetWidth, targetHeight)) {
-            slideBackgroundUrl = objectUrl;
-            continue; // set as slide background
-          }
+            const objectUrl = await compressImageToBase64(
+              imageBlob,
+              imgMaxEdge,
+              imgMaxEdge,
+              imgQuality,
+              mediaPath,
+              { preferJpegIfOpaque }
+            );
 
-          const imgEl: ImageElement = {
-            id: `el-pptx-i-${Math.random().toString(36).substring(2, 9)}`,
-            type: 'image',
-            x: scaledX,
-            y: scaledY,
-            width: scaledW,
-            height: scaledH,
-            rotation: Math.round(rawRot),
-            opacity: 1,
-            zIndex: elementZIndex++,
-            locked: false,
-            hidden: false,
-            animation: null,
-            src: objectUrl,
-          };
-          elements.push(imgEl);
-          if (originalId) {
-            idMap.set(originalId, [imgEl.id]);
+            // Heuristic check: is this the very first element and does it fill the screen?
+            if (
+              elementZIndex === 0 &&
+              isFullScreenBackground(
+                scaledX,
+                scaledY,
+                scaledW,
+                scaledH,
+                targetWidth,
+                targetHeight
+              )
+            ) {
+              slideBackgroundUrl = objectUrl;
+              continue; // set as slide background
+            }
+
+            const imgEl: ImageElement = {
+              id: `el-pptx-i-${Math.random().toString(36).substring(2, 9)}`,
+              type: 'image',
+              x: scaledX,
+              y: scaledY,
+              width: scaledW,
+              height: scaledH,
+              rotation: Math.round(rawRot),
+              opacity: 1,
+              zIndex: elementZIndex++,
+              locked: false,
+              hidden: false,
+              animation: null,
+              src: objectUrl,
+            };
+            elements.push(imgEl);
+            if (originalId) {
+              idMap.set(originalId, [imgEl.id]);
+            }
+          } catch (imgErr) {
+            // One bad/unsupported image must not abort the whole PPTX import
+            console.warn(
+              `Skipping image on slide ${slideNum} (${mediaPath}):`,
+              imgErr
+            );
+            continue;
           }
         }
 
@@ -274,9 +381,25 @@ export const importPptxFromFile = async (file: File): Promise<Story> => {
             if (mediaPath) {
               const imageFile = zip.file(mediaPath);
               if (imageFile) {
-                const imageBlob = await imageFile.async('blob');
-                shapeBgUrl = await compressImageToBase64(imageBlob, 1200, 1200, 0.75, mediaPath);
-                hasImageBackground = true;
+                try {
+                  const imageBlob = await imageFile.async('blob');
+                  if (imageBlob && imageBlob.size >= 32) {
+                    shapeBgUrl = await compressImageToBase64(
+                      imageBlob,
+                      imgMaxEdge,
+                      imgMaxEdge,
+                      imgQuality,
+                      mediaPath,
+                      { preferJpegIfOpaque }
+                    );
+                    hasImageBackground = true;
+                  }
+                } catch (shapeImgErr) {
+                  console.warn(
+                    `Skipping shape fill image on slide ${slideNum} (${mediaPath}):`,
+                    shapeImgErr
+                  );
+                }
               }
             }
           }
@@ -484,77 +607,324 @@ export const importPptxFromFile = async (file: File): Promise<Story> => {
       }
     }
 
-    // Parse PowerPoint timing animations (best-effort)
+    // Parse PowerPoint timing animations (best-effort).
+    //
+    // PowerPoint animations are organized as a sequence of "build steps" (usually one
+    // per mouse click), each represented by a <p:par> directly under the main
+    // <p:seq>'s <p:childTnLst>. Each step can move/reveal several shapes at once.
+    //
+    // "Play Sound" effects appear as <p:audio> / <p:sndTgt r:embed="..."> nodes (or
+    // occasionally <p:cmd>) and are NOT tied to a shape — they are scheduled as
+    // slide-level cues at the build-step clock time (+ optional local delay).
+    const slideAnimationSounds: { startTime: number; src: string }[] = [];
+    // Cache decoded sound data-URLs by zip path so the same click/whoosh isn't re-encoded
+    const soundCache = new Map<string, string>();
+    // Track which relationship targets were used as animation SFX so we don't also
+    // treat them as the slide's narration audio later.
+    const animationSoundPaths = new Set<string>();
+
+    const resolveMediaPath = (raw: string): string => {
+      let p = raw.replace(/\\/g, '/');
+      if (p.startsWith('/')) p = p.slice(1);
+      // Relationships are usually "../media/foo.wav" relative to ppt/slides/
+      p = p.replace(/^\.\.\//, 'ppt/');
+      if (!p.startsWith('ppt/')) {
+        // Bare "media/foo.wav"
+        if (p.startsWith('media/')) p = `ppt/${p}`;
+      }
+      return p;
+    };
+
+    const loadSoundDataUrl = async (mediaPath: string): Promise<string | null> => {
+      const resolved = resolveMediaPath(mediaPath);
+      if (soundCache.has(resolved)) return soundCache.get(resolved)!;
+
+      // Try a few common path variants (case / prefix differences across exporters)
+      const candidates = [
+        resolved,
+        mediaPath,
+        resolveMediaPath(mediaPath),
+        `ppt/media/${mediaPath.split('/').pop()}`,
+      ];
+      let soundFile: { async: (type: 'blob') => Promise<Blob> } | null = null;
+      let usedPath = resolved;
+      for (const c of candidates) {
+        const f = zip.file(c);
+        if (f) {
+          soundFile = f;
+          usedPath = c;
+          break;
+        }
+      }
+      // Case-insensitive fallback scan of ppt/media
+      if (!soundFile) {
+        const baseName = (mediaPath.split('/').pop() || '').toLowerCase();
+        if (baseName) {
+          const matchKey = Object.keys(zip.files).find(
+            (k) =>
+              k.toLowerCase().startsWith('ppt/media/') &&
+              k.toLowerCase().endsWith(baseName)
+          );
+          if (matchKey) {
+            soundFile = zip.file(matchKey);
+            usedPath = matchKey;
+          }
+        }
+      }
+      if (!soundFile) return null;
+
+      try {
+        const soundBlob = await soundFile.async('blob');
+        // Animation SFX are usually small; skip only truly huge files
+        if (soundBlob.size > 6 * 1024 * 1024) {
+          console.warn(`Skipping oversized animation sound (${Math.round(soundBlob.size / 1024)}KB): ${usedPath}`);
+          return null;
+        }
+        const dataUrl = await blobToDataURL(soundBlob);
+        soundCache.set(resolved, dataUrl);
+        soundCache.set(usedPath, dataUrl);
+        animationSoundPaths.add(usedPath);
+        animationSoundPaths.add(resolved);
+        return dataUrl;
+      } catch (err) {
+        console.warn(`Failed to decode animation sound ${usedPath}:`, err);
+        return null;
+      }
+    };
+
+    /** Extract rId / embed target from a sndTgt or similar node */
+    const extractSoundEmbedId = (node: Element): string | null => {
+      const sndTgt =
+        getTag(node, 'sndTgt') ||
+        getTag(node, 'snd') ||
+        (node.localName === 'sndTgt' || node.localName === 'snd' ? node : null);
+      if (!sndTgt) return null;
+      return (
+        sndTgt.getAttribute('r:embed') ||
+        sndTgt.getAttribute('embed') ||
+        sndTgt.getAttribute('r:link') ||
+        sndTgt.getAttribute('link') ||
+        null
+      );
+    };
+
+    /** Read delay (seconds) from a timing node's own cTn, if present */
+    const readNodeDelaySec = (node: Element): number => {
+      // <p:audio><p:cMediaNode><p:cTn delay=".."> or nested stCondLst
+      const cMedia = getTag(node, 'cMediaNode');
+      const cTn =
+        (cMedia ? getTag(cMedia, 'cTn') : null) ||
+        getTag(node, 'cTn') ||
+        (() => {
+          const cBhvr = getTag(node, 'cBhvr');
+          return cBhvr ? getTag(cBhvr, 'cTn') : null;
+        })();
+      if (cTn) {
+        const d = cTn.getAttribute('delay');
+        if (d && d !== 'indefinite') {
+          const ms = parseInt(d, 10);
+          if (!isNaN(ms)) return Math.max(0, ms / 1000);
+        }
+        // Condition list delay (common for click-triggered audio)
+        const stCondLst = getTag(cTn, 'stCondLst');
+        if (stCondLst) {
+          const cond = getTag(stCondLst, 'cond');
+          const cd = cond?.getAttribute('delay');
+          if (cd && cd !== 'indefinite') {
+            const ms = parseInt(cd, 10);
+            if (!isNaN(ms)) return Math.max(0, ms / 1000);
+          }
+        }
+      }
+      return 0;
+    };
+
     try {
       const timing = getTag(sld, 'timing');
       if (timing) {
-        // Query spTgt tags to find all animated element targets
-        const spTgts = getTags(timing, 'spTgt');
-        spTgts.forEach((spTgt) => {
-          const spid = spTgt.getAttribute('spid');
-          if (spid && idMap.has(spid)) {
-            // Traverse up to find the timing effect node (animEffect, anim, set, animMotion, etc.)
-            let effectNode = spTgt.parentElement; // p:tgtEl
-            if (effectNode) effectNode = effectNode.parentElement; // p:cBhvr
-            if (effectNode) effectNode = effectNode.parentElement; // effect block (animEffect, anim, set, etc.)
+        // Collect every top-level build-step group, across every <p:seq> found on the
+        // slide, in document order.
+        const seqs = getTags(timing, 'seq');
+        const groups: Element[] = [];
+        seqs.forEach((seq) => {
+          const seqCTn = getTag(seq, 'cTn');
+          const childTnLst = seqCTn ? getTag(seqCTn, 'childTnLst') : null;
+          if (childTnLst) {
+            groups.push(...directChildren(childTnLst, 'par'));
+          }
+        });
 
-            if (effectNode) {
-              const localName = effectNode.localName;
-              let presetId = 'fade'; // default fallback for basic appearance
-              
-              if (localName === 'animEffect') {
-                const filter = effectNode.getAttribute('filter') || 'fade';
-                const lowercaseFilter = filter.toLowerCase();
-                if (lowercaseFilter.includes('zoom')) presetId = 'zoom';
-                else if (lowercaseFilter.includes('fly') || lowercaseFilter.includes('slide')) presetId = 'slide-left';
-                else if (lowercaseFilter.includes('bounce')) presetId = 'bounce';
-                else if (lowercaseFilter.includes('spin') || lowercaseFilter.includes('rotate')) presetId = 'rotate';
-                else if (lowercaseFilter.includes('flip')) presetId = 'flip';
-              } else if (localName === 'animMotion') {
-                presetId = 'slide-left';
-              } else if (localName === 'set') {
-                presetId = 'fade'; // sets are usually visibility triggers
-              } else if (localName === 'anim') {
-                presetId = 'fade';
-              }
+        // Some decks (or partial timing trees) skip the <p:seq> wrapper entirely.
+        if (groups.length === 0) {
+          groups.push(timing);
+        }
 
-              // Search parents hierarchically for dur & delay attributes
-              let durVal = 1000;
-              let delayVal = 0;
-              
-              let currentParent = effectNode.parentElement;
-              while (currentParent && currentParent.localName !== 'timing') {
-                const tag = currentParent.localName;
-                if (tag === 'cTn' || tag === 'par') {
-                  const durAttr = currentParent.getAttribute('dur');
-                  const delayAttr = currentParent.getAttribute('delay');
-                  if (durAttr) durVal = parseInt(durAttr, 10);
-                  if (delayAttr) delayVal = parseInt(delayAttr, 10);
+        const effectTags = ['animEffect', 'anim', 'set', 'animMotion', 'animRot', 'animScale'];
+        const MIN_STEP_GAP = 0.15;
+        let clock = 0;
+
+        for (const group of groups) {
+          const groupCTn = getTag(group, 'cTn');
+          const presetClass = groupCTn?.getAttribute('presetClass');
+          // Visual entrance animations only — but ALWAYS harvest sounds below,
+          // even on exit/emphasis/path groups (sounds must not be skipped).
+          const isEntrance = !presetClass || presetClass === 'entr';
+
+          let groupMaxEnd = 0;
+          let matchedAny = false;
+
+          if (isEntrance) {
+            for (const tag of effectTags) {
+              for (const effectNode of getTags(group, tag)) {
+                const spTgt = getTag(effectNode, 'spTgt');
+                const spid = spTgt?.getAttribute('spid');
+                if (!spid || !idMap.has(spid)) continue;
+
+                const localName = effectNode.localName;
+                let presetId = 'fade';
+
+                if (localName === 'animEffect') {
+                  const filter = (effectNode.getAttribute('filter') || 'fade').toLowerCase();
+                  if (filter.includes('zoom') || filter.includes('in(')) presetId = 'zoom';
+                  else if (
+                    filter.includes('fly') ||
+                    filter.includes('wipe') ||
+                    filter.includes('push') ||
+                    filter.includes('cover') ||
+                    filter.includes('slide')
+                  )
+                    presetId = 'slide-left';
+                  else if (filter.includes('bounce')) presetId = 'bounce';
+                  else if (filter.includes('spin') || filter.includes('wheel'))
+                    presetId = 'rotate';
+                  else if (filter.includes('flip')) presetId = 'flip';
+                } else if (localName === 'animMotion') {
+                  presetId = 'slide-left';
+                } else if (localName === 'animRot') {
+                  presetId = 'rotate';
+                } else if (localName === 'animScale') {
+                  presetId = 'zoom';
+                } else {
+                  presetId = 'fade';
                 }
-                currentParent = currentParent.parentElement;
-              }
 
-              const duration = durVal / 1000 || 1.0;
-              const delay = delayVal / 1000 || 0.0;
+                const cBhvr = getTag(effectNode, 'cBhvr');
+                const effCTn = cBhvr ? getTag(cBhvr, 'cTn') : null;
+                const durAttr = effCTn?.getAttribute('dur');
+                const delayAttr = effCTn?.getAttribute('delay');
+                const localDelay =
+                  delayAttr && delayAttr !== 'indefinite'
+                    ? parseInt(delayAttr, 10) / 1000
+                    : 0;
+                const duration =
+                  durAttr && durAttr !== 'indefinite' && !isNaN(parseInt(durAttr, 10))
+                    ? Math.max(parseInt(durAttr, 10) / 1000, 0.1)
+                    : 0.6;
 
-              const targetElementIds = idMap.get(spid);
-              if (targetElementIds) {
-                targetElementIds.forEach((elId) => {
-                  const el = elements.find((item) => item.id === elId);
-                  if (el) {
-                    el.animation = {
-                      presetId,
-                      startTime: delay,
-                      duration: duration,
-                      delay: 0,
-                      repeat: 0,
-                    };
-                  }
-                });
+                const targetElementIds = idMap.get(spid);
+                if (targetElementIds) {
+                  targetElementIds.forEach((elId) => {
+                    const el = elements.find((item) => item.id === elId);
+                    if (el && !el.animation) {
+                      el.animation = {
+                        presetId,
+                        startTime: Math.round((clock + localDelay) * 100) / 100,
+                        duration,
+                        delay: 0,
+                        repeat: 0,
+                      };
+                    }
+                  });
+                }
+
+                matchedAny = true;
+                groupMaxEnd = Math.max(groupMaxEnd, localDelay + duration);
               }
             }
           }
-        });
+
+          // ---- Harvest "Play Sound" effects for THIS build step ----
+          // Sources:
+          //  1) <p:audio> … <p:sndTgt r:embed="rIdN"/>
+          //  2) any descendant <p:sndTgt> / <p:snd>
+          //  3) <p:cmd type="call" cmd="play…"> with an embed target nearby
+          const soundNodes: Element[] = [
+            ...getTags(group, 'audio'),
+            ...getTags(group, 'sndTgt'),
+            ...getTags(group, 'snd'),
+          ];
+
+          // Also scan cmd nodes that trigger media playback
+          for (const cmdNode of getTags(group, 'cmd')) {
+            const cmdAttr = (cmdNode.getAttribute('cmd') || '').toLowerCase();
+            const typeAttr = (cmdNode.getAttribute('type') || '').toLowerCase();
+            if (
+              cmdAttr.includes('play') ||
+              typeAttr === 'call' ||
+              typeAttr === 'verb'
+            ) {
+              soundNodes.push(cmdNode);
+            }
+          }
+
+          const seenEmbeds = new Set<string>();
+          for (const soundNode of soundNodes) {
+            const embedId = extractSoundEmbedId(soundNode);
+            if (!embedId || seenEmbeds.has(embedId)) continue;
+            seenEmbeds.add(embedId);
+
+            const mediaPath = relsMap[embedId];
+            if (!mediaPath) continue;
+
+            // Only treat as SFX if the target looks like audio
+            const lowerPath = mediaPath.toLowerCase();
+            const isAudioFile =
+              /\.(mp3|wav|m4a|wma|ogg|aac|mid|midi)$/i.test(lowerPath) ||
+              lowerPath.includes('/media/');
+            if (!isAudioFile && !/\.(mp3|wav|m4a|wma|ogg|aac)$/i.test(lowerPath)) {
+              // Still try — some packs omit extensions in the relationship target
+            }
+
+            const localSoundDelay = readNodeDelaySec(soundNode);
+            const dataUrl = await loadSoundDataUrl(mediaPath);
+            if (!dataUrl) continue;
+
+            slideAnimationSounds.push({
+              startTime: Math.round((clock + localSoundDelay) * 100) / 100,
+              src: dataUrl,
+            });
+            matchedAny = true;
+            groupMaxEnd = Math.max(groupMaxEnd, localSoundDelay + 0.15);
+          }
+
+          if (matchedAny) {
+            clock += Math.max(groupMaxEnd, MIN_STEP_GAP);
+          }
+        }
+
+        // Fallback: any <p:audio>/<p:sndTgt> under timing that we somehow missed
+        // (e.g. nested deeper than our group walk). Attach at t=0 only if no
+        // sounds were collected at all for this slide.
+        if (slideAnimationSounds.length === 0) {
+          const orphanNodes = [
+            ...getTags(timing, 'audio'),
+            ...getTags(timing, 'sndTgt'),
+          ];
+          const seen = new Set<string>();
+          for (const node of orphanNodes) {
+            const embedId = extractSoundEmbedId(node);
+            if (!embedId || seen.has(embedId)) continue;
+            seen.add(embedId);
+            const mediaPath = relsMap[embedId];
+            if (!mediaPath) continue;
+            const dataUrl = await loadSoundDataUrl(mediaPath);
+            if (!dataUrl) continue;
+            slideAnimationSounds.push({
+              startTime: Math.round(readNodeDelaySec(node) * 100) / 100,
+              src: dataUrl,
+            });
+          }
+        }
       }
     } catch (timingErr) {
       console.warn('Could not parse slide timing animations:', timingErr);
@@ -566,32 +936,45 @@ export const importPptxFromFile = async (file: File): Promise<Story> => {
     let slideAudioDuration = 0;
 
     const audioExtensions = ['.mp3', '.wav', '.m4a', '.ogg', '.wma', '.aac'];
+    // Prefer a relationship that was NOT already used as an animation SFX
+    // (those are short click/whoosh effects, not slide narration).
     const audioRel = Object.values(relsMap).find((targetPath) => {
       const lower = targetPath.toLowerCase();
-      return audioExtensions.some((ext) => lower.endsWith(ext));
+      if (!audioExtensions.some((ext) => lower.endsWith(ext))) return false;
+      const resolved = resolveMediaPath(targetPath);
+      if (animationSoundPaths.has(resolved) || animationSoundPaths.has(targetPath)) {
+        return false;
+      }
+      return true;
     });
 
-    if (audioRel) {
+    if (audioRel && !skipHeavyAudio) {
       try {
         const audioFile = zip.file(audioRel);
         if (audioFile) {
           const audioBlob = await audioFile.async('blob');
-          const dataUrl = await blobToDataURL(audioBlob);
-          slideAudioUrl = dataUrl;
-          slideAudioName = audioRel.substring(audioRel.lastIndexOf('/') + 1);
-          
-          // Get duration
-          slideAudioDuration = await new Promise<number>((resolve) => {
-            const audioObj = new Audio(slideAudioUrl);
-            audioObj.addEventListener('loadedmetadata', () => {
-              resolve(audioObj.duration || 0);
+          // Cap audio embedding at ~8MB to avoid memory blow-ups
+          if (audioBlob.size > 8 * 1024 * 1024) {
+            console.warn(
+              `Skipping large audio on slide ${slideNum} (${Math.round(audioBlob.size / 1024 / 1024)}MB)`
+            );
+          } else {
+            const dataUrl = await blobToDataURL(audioBlob);
+            slideAudioUrl = dataUrl;
+            slideAudioName = audioRel.substring(audioRel.lastIndexOf('/') + 1);
+
+            // Get duration
+            slideAudioDuration = await new Promise<number>((resolve) => {
+              const audioObj = new Audio(slideAudioUrl);
+              audioObj.addEventListener('loadedmetadata', () => {
+                resolve(audioObj.duration || 0);
+              });
+              audioObj.addEventListener('error', () => {
+                resolve(0);
+              });
+              setTimeout(() => resolve(0), 1000);
             });
-            audioObj.addEventListener('error', () => {
-              resolve(0);
-            });
-            // Set 1-second timeout in case browser takes too long to load
-            setTimeout(() => resolve(0), 1000);
-          });
+          }
         }
       } catch (audioErr) {
         console.warn(`Could not extract audio relationship for slide ${slideNum}:`, audioErr);
@@ -612,16 +995,26 @@ export const importPptxFromFile = async (file: File): Promise<Story> => {
         name: slideAudioName,
         duration: slideAudioDuration,
       } : null,
+      animationSounds: slideAnimationSounds.length > 0 ? slideAnimationSounds : undefined,
     };
     slides.push(slide);
+    } catch (slideErr) {
+      console.warn(`Skipping slide ${slideNum} due to error:`, slideErr);
+      // Continue with remaining slides instead of aborting the whole import
+    }
+
+    // Let the browser breathe / GC between slides (critical for large PPTX)
+    await yieldToMain();
   }
 
   if (slides.length === 0) {
     throw new Error('لم يتم العثور على شرائح صالحة لاستيرادها من ملف الـ PowerPoint.');
   }
 
+  report(98, 'جاري تجهيز القصة...');
   const cleanTitle = file.name.replace(/\.[^/.]+$/, "");
 
+  report(100, 'اكتمل الاستيراد');
   return {
     id: `story-pptx-${Math.random().toString(36).substring(2, 9)}`,
     title: cleanTitle,

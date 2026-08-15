@@ -60,6 +60,10 @@ export interface Slide {
     duration: number;
   } | null;
   duration?: number;
+  // "Play Sound" animation effects (e.g. a click/whoosh sound attached to a build
+  // step) are not tied to any single shape, so they're kept as slide-level cues
+  // keyed to the timeline position (in seconds) they should fire at.
+  animationSounds?: { startTime: number; src: string }[];
 }
 
 export interface Story {
