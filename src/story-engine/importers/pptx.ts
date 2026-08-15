@@ -84,6 +84,127 @@ const resolveSchemeColor = (schemeVal: string | null, isBgDark: boolean): string
 
 export type PptxProgressCallback = (percent: number, message?: string) => void;
 
+/**
+ * Controls output size vs quality for PPTX → Story conversion.
+ * Use a preset, or override individual fields.
+ */
+export type PptxQualityPreset = 'high' | 'balanced' | 'small' | 'minimal';
+
+export interface PptxImportOptions {
+  /** Named preset (overridden by any explicit field below) */
+  preset?: PptxQualityPreset;
+  /** Max image edge in pixels (e.g. 1200, 800, 640) */
+  imageMaxEdge?: number;
+  /** JPEG quality 0.1–1 (only for opaque images) */
+  imageJpegQuality?: number;
+  /** Prefer JPEG for opaque images (transparent always stay PNG) */
+  preferJpegIfOpaque?: boolean;
+  /** Embed per-slide narration audio */
+  includeSlideAudio?: boolean;
+  /** Embed "Play Sound" animation effect clips */
+  includeAnimationSounds?: boolean;
+  /** Skip embedding any single audio blob larger than this (bytes) */
+  maxAudioBytes?: number;
+  /**
+   * Downsample narration/SFX with Web Audio before embedding (smaller WAV).
+   * target sample rate e.g. 22050 or 16000. 0 = keep original.
+   */
+  audioSampleRate?: number;
+  /** Force mono when downsampling audio */
+  audioMono?: boolean;
+}
+
+export const PPTX_QUALITY_PRESETS: Record<
+  PptxQualityPreset,
+  Required<
+    Pick<
+      PptxImportOptions,
+      | 'imageMaxEdge'
+      | 'imageJpegQuality'
+      | 'preferJpegIfOpaque'
+      | 'includeSlideAudio'
+      | 'includeAnimationSounds'
+      | 'maxAudioBytes'
+      | 'audioSampleRate'
+      | 'audioMono'
+    >
+  >
+> = {
+  high: {
+    imageMaxEdge: 1200,
+    imageJpegQuality: 0.82,
+    preferJpegIfOpaque: false,
+    includeSlideAudio: true,
+    includeAnimationSounds: true,
+    maxAudioBytes: 8 * 1024 * 1024,
+    audioSampleRate: 0,
+    audioMono: false,
+  },
+  balanced: {
+    imageMaxEdge: 1000,
+    imageJpegQuality: 0.7,
+    preferJpegIfOpaque: true,
+    includeSlideAudio: true,
+    includeAnimationSounds: true,
+    maxAudioBytes: 4 * 1024 * 1024,
+    audioSampleRate: 22050,
+    audioMono: true,
+  },
+  small: {
+    imageMaxEdge: 800,
+    imageJpegQuality: 0.55,
+    preferJpegIfOpaque: true,
+    includeSlideAudio: true,
+    includeAnimationSounds: true,
+    maxAudioBytes: 2 * 1024 * 1024,
+    audioSampleRate: 16000,
+    audioMono: true,
+  },
+  minimal: {
+    imageMaxEdge: 640,
+    imageJpegQuality: 0.45,
+    preferJpegIfOpaque: true,
+    includeSlideAudio: false,
+    includeAnimationSounds: true,
+    maxAudioBytes: 1 * 1024 * 1024,
+    audioSampleRate: 16000,
+    audioMono: true,
+  },
+};
+
+const resolveImportOptions = (
+  fileSizeMB: number,
+  options?: PptxImportOptions
+): Required<
+  Pick<
+    PptxImportOptions,
+    | 'imageMaxEdge'
+    | 'imageJpegQuality'
+    | 'preferJpegIfOpaque'
+    | 'includeSlideAudio'
+    | 'includeAnimationSounds'
+    | 'maxAudioBytes'
+    | 'audioSampleRate'
+    | 'audioMono'
+  >
+> => {
+  // Auto preset from file size when user didn't pick one
+  const autoPreset: PptxQualityPreset =
+    fileSizeMB >= 40 ? 'minimal' : fileSizeMB >= 15 ? 'small' : 'balanced';
+  const base = PPTX_QUALITY_PRESETS[options?.preset ?? autoPreset];
+  return {
+    imageMaxEdge: options?.imageMaxEdge ?? base.imageMaxEdge,
+    imageJpegQuality: options?.imageJpegQuality ?? base.imageJpegQuality,
+    preferJpegIfOpaque: options?.preferJpegIfOpaque ?? base.preferJpegIfOpaque,
+    includeSlideAudio: options?.includeSlideAudio ?? base.includeSlideAudio,
+    includeAnimationSounds:
+      options?.includeAnimationSounds ?? base.includeAnimationSounds,
+    maxAudioBytes: options?.maxAudioBytes ?? base.maxAudioBytes,
+    audioSampleRate: options?.audioSampleRate ?? base.audioSampleRate,
+    audioMono: options?.audioMono ?? base.audioMono,
+  };
+};
+
 /** Yield to the browser so UI stays responsive and GC can run between heavy slides */
 const yieldToMain = (): Promise<void> =>
   new Promise((resolve) => {
@@ -94,9 +215,88 @@ const yieldToMain = (): Promise<void> =>
     }
   });
 
+/**
+ * Optionally downsample audio via Web Audio API and export as WAV data-URL.
+ * Falls back to original blobToDataURL on failure.
+ */
+const compressAudioBlob = async (
+  blob: Blob,
+  sampleRate: number,
+  mono: boolean
+): Promise<string> => {
+  if (!sampleRate || sampleRate <= 0) {
+    return blobToDataURL(blob);
+  }
+  try {
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext })
+        .webkitAudioContext;
+    if (!AudioCtx) return blobToDataURL(blob);
+
+    const ctx = new AudioCtx();
+    const raw = await blob.arrayBuffer();
+    const decoded = await ctx.decodeAudioData(raw.slice(0));
+    await ctx.close();
+
+    const targetRate = Math.min(sampleRate, decoded.sampleRate);
+    const duration = decoded.duration;
+    const offline = new OfflineAudioContext(
+      mono ? 1 : Math.min(2, decoded.numberOfChannels),
+      Math.ceil(duration * targetRate),
+      targetRate
+    );
+    const source = offline.createBufferSource();
+    source.buffer = decoded;
+    source.connect(offline.destination);
+    source.start(0);
+    const rendered = await offline.startRendering();
+
+    // Encode as 16-bit mono/stereo WAV
+    const numCh = rendered.numberOfChannels;
+    const numFrames = rendered.length;
+    const buffer = new ArrayBuffer(44 + numFrames * numCh * 2);
+    const view = new DataView(buffer);
+    const writeStr = (offset: number, str: string) => {
+      for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+    };
+    writeStr(0, 'RIFF');
+    view.setUint32(4, 36 + numFrames * numCh * 2, true);
+    writeStr(8, 'WAVE');
+    writeStr(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true); // PCM
+    view.setUint16(22, numCh, true);
+    view.setUint32(24, targetRate, true);
+    view.setUint32(28, targetRate * numCh * 2, true);
+    view.setUint16(32, numCh * 2, true);
+    view.setUint16(34, 16, true);
+    writeStr(36, 'data');
+    view.setUint32(40, numFrames * numCh * 2, true);
+
+    let offset = 44;
+    const channels: Float32Array[] = [];
+    for (let c = 0; c < numCh; c++) channels.push(rendered.getChannelData(c));
+    for (let i = 0; i < numFrames; i++) {
+      for (let c = 0; c < numCh; c++) {
+        const s = Math.max(-1, Math.min(1, channels[c][i]));
+        view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+        offset += 2;
+      }
+    }
+
+    const wavBlob = new Blob([buffer], { type: 'audio/wav' });
+    return blobToDataURL(wavBlob);
+  } catch (err) {
+    console.warn('Audio compress failed, using original:', err);
+    return blobToDataURL(blob);
+  }
+};
+
 export const importPptxFromFile = async (
   file: File,
-  onProgress?: PptxProgressCallback
+  onProgress?: PptxProgressCallback,
+  options?: PptxImportOptions
 ): Promise<Story> => {
   const report = (percent: number, message?: string) => {
     if (onProgress) {
@@ -104,24 +304,19 @@ export const importPptxFromFile = async (
     }
   };
 
-  // Adaptive quality based on PPTX file size (large decks need aggressive compression)
   const fileSizeMB = file.size / (1024 * 1024);
-  const isLarge = fileSizeMB >= 15;
-  const isHuge = fileSizeMB >= 40;
-  const imgMaxEdge = isHuge ? 800 : isLarge ? 1000 : 1200;
-  const imgQuality = isHuge ? 0.55 : isLarge ? 0.65 : 0.75;
-  // Prefer JPEG only for fully opaque images; transparent PNGs always stay PNG
-  const preferJpegIfOpaque = isLarge;
-  // Skip embedding slide audio as base64 when the deck is already huge
-  const skipHeavyAudio = isHuge;
+  const opts = resolveImportOptions(fileSizeMB, options);
+  const imgMaxEdge = opts.imageMaxEdge;
+  const imgQuality = opts.imageJpegQuality;
+  const preferJpegIfOpaque = opts.preferJpegIfOpaque;
+  const skipHeavyAudio = !opts.includeSlideAudio;
+  const includeAnimationSounds = opts.includeAnimationSounds;
+  const maxAudioBytes = opts.maxAudioBytes;
 
+  const presetLabel = options?.preset ?? (fileSizeMB >= 40 ? 'minimal' : fileSizeMB >= 15 ? 'small' : 'balanced');
   report(
     2,
-    isHuge
-      ? `ملف كبير جداً (${Math.round(fileSizeMB)}MB) — ضغط قوي...`
-      : isLarge
-        ? `ملف كبير (${Math.round(fileSizeMB)}MB) — جاري التحسين...`
-        : 'جاري قراءة ملف PowerPoint...'
+    `جاري الاستيراد (${presetLabel}) — صور ≤${imgMaxEdge}px @ ${Math.round(imgQuality * 100)}%...`
   );
 
   const zip = await JSZip.loadAsync(file);
@@ -675,12 +870,17 @@ export const importPptxFromFile = async (
 
       try {
         const soundBlob = await soundFile.async('blob');
-        // Animation SFX are usually small; skip only truly huge files
-        if (soundBlob.size > 6 * 1024 * 1024) {
-          console.warn(`Skipping oversized animation sound (${Math.round(soundBlob.size / 1024)}KB): ${usedPath}`);
+        if (soundBlob.size > maxAudioBytes) {
+          console.warn(
+            `Skipping oversized animation sound (${Math.round(soundBlob.size / 1024)}KB > limit): ${usedPath}`
+          );
           return null;
         }
-        const dataUrl = await blobToDataURL(soundBlob);
+        const dataUrl = await compressAudioBlob(
+          soundBlob,
+          opts.audioSampleRate,
+          opts.audioMono
+        );
         soundCache.set(resolved, dataUrl);
         soundCache.set(usedPath, dataUrl);
         animationSoundPaths.add(usedPath);
@@ -848,22 +1048,26 @@ export const importPptxFromFile = async (
           //  1) <p:audio> … <p:sndTgt r:embed="rIdN"/>
           //  2) any descendant <p:sndTgt> / <p:snd>
           //  3) <p:cmd type="call" cmd="play…"> with an embed target nearby
-          const soundNodes: Element[] = [
-            ...getTags(group, 'audio'),
-            ...getTags(group, 'sndTgt'),
-            ...getTags(group, 'snd'),
-          ];
+          const soundNodes: Element[] = includeAnimationSounds
+            ? [
+                ...getTags(group, 'audio'),
+                ...getTags(group, 'sndTgt'),
+                ...getTags(group, 'snd'),
+              ]
+            : [];
 
           // Also scan cmd nodes that trigger media playback
-          for (const cmdNode of getTags(group, 'cmd')) {
-            const cmdAttr = (cmdNode.getAttribute('cmd') || '').toLowerCase();
-            const typeAttr = (cmdNode.getAttribute('type') || '').toLowerCase();
-            if (
-              cmdAttr.includes('play') ||
-              typeAttr === 'call' ||
-              typeAttr === 'verb'
-            ) {
-              soundNodes.push(cmdNode);
+          if (includeAnimationSounds) {
+            for (const cmdNode of getTags(group, 'cmd')) {
+              const cmdAttr = (cmdNode.getAttribute('cmd') || '').toLowerCase();
+              const typeAttr = (cmdNode.getAttribute('type') || '').toLowerCase();
+              if (
+                cmdAttr.includes('play') ||
+                typeAttr === 'call' ||
+                typeAttr === 'verb'
+              ) {
+                soundNodes.push(cmdNode);
+              }
             }
           }
 
@@ -905,7 +1109,7 @@ export const importPptxFromFile = async (
         // Fallback: any <p:audio>/<p:sndTgt> under timing that we somehow missed
         // (e.g. nested deeper than our group walk). Attach at t=0 only if no
         // sounds were collected at all for this slide.
-        if (slideAnimationSounds.length === 0) {
+        if (includeAnimationSounds && slideAnimationSounds.length === 0) {
           const orphanNodes = [
             ...getTags(timing, 'audio'),
             ...getTags(timing, 'sndTgt'),
@@ -953,17 +1157,19 @@ export const importPptxFromFile = async (
         const audioFile = zip.file(audioRel);
         if (audioFile) {
           const audioBlob = await audioFile.async('blob');
-          // Cap audio embedding at ~8MB to avoid memory blow-ups
-          if (audioBlob.size > 8 * 1024 * 1024) {
+          if (audioBlob.size > maxAudioBytes) {
             console.warn(
-              `Skipping large audio on slide ${slideNum} (${Math.round(audioBlob.size / 1024 / 1024)}MB)`
+              `Skipping large slide audio on slide ${slideNum} (${Math.round(audioBlob.size / 1024 / 1024)}MB > limit)`
             );
           } else {
-            const dataUrl = await blobToDataURL(audioBlob);
+            const dataUrl = await compressAudioBlob(
+              audioBlob,
+              opts.audioSampleRate,
+              opts.audioMono
+            );
             slideAudioUrl = dataUrl;
             slideAudioName = audioRel.substring(audioRel.lastIndexOf('/') + 1);
 
-            // Get duration
             slideAudioDuration = await new Promise<number>((resolve) => {
               const audioObj = new Audio(slideAudioUrl);
               audioObj.addEventListener('loadedmetadata', () => {

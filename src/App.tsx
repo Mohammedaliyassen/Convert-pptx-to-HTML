@@ -3,7 +3,11 @@ import { StoryBuilder } from './story-engine/builder/StoryBuilder';
 import { StoryPlayer } from './story-engine/player/StoryPlayer';
 import type { Story } from './story-engine/core/types';
 import { importImageFromUrl, importImageFromFile } from './story-engine/importers/image';
-import { importPptxFromFile } from './story-engine/importers/pptx';
+import {
+  importPptxFromFile,
+  type PptxQualityPreset,
+  PPTX_QUALITY_PRESETS,
+} from './story-engine/importers/pptx';
 import { importPdfFromFile } from './story-engine/importers/pdf';
 import { useStoryStore } from './story-engine/store/useStoryStore';
 import { Code, Upload, Link, FileJson, Copy, Check, X, Sliders, Play } from 'lucide-react';
@@ -40,9 +44,10 @@ function App() {
   const [imgUrlInput, setImgUrlInput] = useState('');
   const [copied, setCopied] = useState(false);
 
-  // PPTX import progress
+  // PPTX import progress + quality
   const [importProgress, setImportProgress] = useState<number | null>(null);
   const [importMessage, setImportMessage] = useState<string>('');
+  const [pptxQuality, setPptxQuality] = useState<PptxQualityPreset>('balanced');
 
   // Standalone Player states
   const [standaloneStory, setStandaloneStory] = useState<Story | null>(null);
@@ -91,10 +96,14 @@ function App() {
     setImportProgress(0);
     setImportMessage('بدء استيراد PowerPoint...');
     try {
-      const importedStory = await importPptxFromFile(file, (percent, message) => {
-        setImportProgress(percent);
-        if (message) setImportMessage(message);
-      });
+      const importedStory = await importPptxFromFile(
+        file,
+        (percent, message) => {
+          setImportProgress(percent);
+          if (message) setImportMessage(message);
+        },
+        { preset: pptxQuality }
+      );
       loadStory(importedStory);
       setIsConsoleOpen(false);
     } catch (err) {
@@ -222,6 +231,38 @@ function App() {
                 </p>
                 
                 <div className={styles.importControls}>
+                  {/* PPTX quality preset */}
+                  <div className={styles.qualityRow}>
+                    <label className={styles.qualityLabel} htmlFor="pptx-quality">
+                      جودة تصدير PPTX (حجم الملف):
+                    </label>
+                    <select
+                      id="pptx-quality"
+                      className={styles.qualitySelect}
+                      value={pptxQuality}
+                      onChange={(e) =>
+                        setPptxQuality(e.target.value as PptxQualityPreset)
+                      }
+                    >
+                      <option value="high">
+                        عالية — {PPTX_QUALITY_PRESETS.high.imageMaxEdge}px /{' '}
+                        {Math.round(PPTX_QUALITY_PRESETS.high.imageJpegQuality * 100)}% + صوت كامل
+                      </option>
+                      <option value="balanced">
+                        متوازنة — {PPTX_QUALITY_PRESETS.balanced.imageMaxEdge}px /{' '}
+                        {Math.round(PPTX_QUALITY_PRESETS.balanced.imageJpegQuality * 100)}% (موصى بها)
+                      </option>
+                      <option value="small">
+                        صغيرة — {PPTX_QUALITY_PRESETS.small.imageMaxEdge}px /{' '}
+                        {Math.round(PPTX_QUALITY_PRESETS.small.imageJpegQuality * 100)}% + صوت مضغوط
+                      </option>
+                      <option value="minimal">
+                        أصغر حجم — {PPTX_QUALITY_PRESETS.minimal.imageMaxEdge}px /{' '}
+                        {Math.round(PPTX_QUALITY_PRESETS.minimal.imageJpegQuality * 100)}% بدون سرد
+                      </option>
+                    </select>
+                  </div>
+
                   {/* PowerPoint PPTX Import */}
                   <label className={styles.fileUploadLabel} style={{ borderColor: 'rgba(235, 87, 87, 0.4)' }}>
                     <Upload size={16} style={{ color: '#eb5757' }} />
