@@ -2,19 +2,40 @@ import gsap from 'gsap';
 import type { AnimationPreset } from '../core/types';
 
 export const BUILTIN_PRESETS: AnimationPreset[] = [
-  { id: 'fade', name: 'تلاشي (Fade In)', type: 'builtin' },
-  { id: 'zoom', name: 'تكبير (Zoom In)', type: 'builtin' },
-  { id: 'slide-left', name: 'انزلاق لليسار (Slide Left)', type: 'builtin' },
-  { id: 'slide-right', name: 'انزلاق لليمين (Slide Right)', type: 'builtin' },
-  { id: 'slide-up', name: 'انزلاق للأعلى (Slide Up)', type: 'builtin' },
-  { id: 'slide-down', name: 'انزلاق للأسفل (Slide Down)', type: 'builtin' },
-  { id: 'rotate', name: 'دوران (Rotate In)', type: 'builtin' },
-  { id: 'bounce', name: 'ارتداد (Bounce In)', type: 'builtin' },
-  { id: 'flip', name: 'انقلاب ثلاثي الأبعاد (Flip In)', type: 'builtin' }
+  // —— Entrance ——
+  { id: 'fade', name: 'تلاشي (Fade In)', type: 'builtin', category: 'entrance', icon: '✨' },
+  { id: 'zoom', name: 'تكبير (Zoom In)', type: 'builtin', category: 'entrance', icon: '🔍' },
+  { id: 'slide-left', name: 'انزلاق لليسار', type: 'builtin', category: 'entrance', icon: '⬅️' },
+  { id: 'slide-right', name: 'انزلاق لليمين', type: 'builtin', category: 'entrance', icon: '➡️' },
+  { id: 'slide-up', name: 'انزلاق للأعلى', type: 'builtin', category: 'entrance', icon: '⬆️' },
+  { id: 'slide-down', name: 'انزلاق للأسفل', type: 'builtin', category: 'entrance', icon: '⬇️' },
+  { id: 'rotate', name: 'دوران (Rotate)', type: 'builtin', category: 'entrance', icon: '🔄' },
+  { id: 'bounce', name: 'ارتداد (Bounce)', type: 'builtin', category: 'entrance', icon: '🏀' },
+  { id: 'flip', name: 'انقلاب 3D (Flip)', type: 'builtin', category: 'entrance', icon: '🃏' },
+  { id: 'pop', name: 'ظهور مفاجئ (Pop)', type: 'builtin', category: 'entrance', icon: '💥' },
+  { id: 'blur-in', name: 'ضبابية للوضوح', type: 'builtin', category: 'entrance', icon: '🌫️' },
+  { id: 'typewriter', name: 'آلة كاتبة (نص)', type: 'builtin', category: 'entrance', icon: '⌨️' },
+  // —— Emphasis ——
+  { id: 'pulse', name: 'نبض (Pulse)', type: 'builtin', category: 'emphasis', icon: '💓' },
+  { id: 'shake', name: 'اهتزاز (Shake)', type: 'builtin', category: 'emphasis', icon: '📳' },
+  { id: 'wiggle', name: 'تمايل (Wiggle)', type: 'builtin', category: 'emphasis', icon: '🌊' },
+  { id: 'glow', name: 'توهج (Glow)', type: 'builtin', category: 'emphasis', icon: '🌟' },
+  // —— Exit ——
+  { id: 'fade-out', name: 'اختفاء تدريجي', type: 'builtin', category: 'exit', icon: '👻' },
+  { id: 'zoom-out', name: 'تصغير واختفاء', type: 'builtin', category: 'exit', icon: '📉' },
+  { id: 'slide-out-left', name: 'خروج لليسار', type: 'builtin', category: 'exit', icon: '🚪' },
+  { id: 'slide-out-right', name: 'خروج لليمين', type: 'builtin', category: 'exit', icon: '🚪' },
+];
+
+export const PRESET_CATEGORIES = [
+  { id: 'entrance' as const, labelAr: 'دخول', labelEn: 'Entrance' },
+  { id: 'emphasis' as const, labelAr: 'تأكيد', labelEn: 'Emphasis' },
+  { id: 'exit' as const, labelAr: 'خروج', labelEn: 'Exit' },
+  { id: 'custom' as const, labelAr: 'مخصص', labelEn: 'Custom' },
 ];
 
 export const applyAnimation = (
-  target: any, // DOM Element or Konva Node
+  target: any,
   preset: AnimationPreset,
   settings: {
     startTime: number;
@@ -33,74 +54,206 @@ export const applyAnimation = (
   const repeat = settings.repeat;
   const ease = settings.ease || 'power1.out';
 
-  // Determine initial state values
   let fromVars: any = {};
-  let toVars: any = {
-    duration,
-    delay,
-    repeat,
-    ease,
-  };
-
+  let toVars: any = { duration, delay, repeat, ease };
   const presetId = preset.id;
 
-  // Set up builtin presets
   if (preset.type === 'builtin') {
     switch (presetId) {
       case 'fade':
         fromVars = { opacity: 0 };
         toVars = { ...toVars, opacity: 1 };
         break;
+      case 'fade-out':
+        fromVars = { opacity: 1 };
+        toVars = { ...toVars, opacity: 0 };
+        break;
       case 'zoom':
         fromVars = isKonva ? { scaleX: 0, scaleY: 0, opacity: 0 } : { scale: 0, opacity: 0 };
-        toVars = isKonva ? { ...toVars, scaleX: 1, scaleY: 1, opacity: 1 } : { ...toVars, scale: 1, opacity: 1 };
+        toVars = isKonva
+          ? { ...toVars, scaleX: 1, scaleY: 1, opacity: 1 }
+          : { ...toVars, scale: 1, opacity: 1 };
+        break;
+      case 'zoom-out':
+        fromVars = isKonva ? { scaleX: 1, scaleY: 1, opacity: 1 } : { scale: 1, opacity: 1 };
+        toVars = isKonva
+          ? { ...toVars, scaleX: 0, scaleY: 0, opacity: 0 }
+          : { ...toVars, scale: 0, opacity: 0 };
+        break;
+      case 'pop':
+        fromVars = isKonva ? { scaleX: 0.3, scaleY: 0.3, opacity: 0 } : { scale: 0.3, opacity: 0 };
+        toVars = isKonva
+          ? { ...toVars, scaleX: 1, scaleY: 1, opacity: 1, ease: 'back.out(1.7)' }
+          : { ...toVars, scale: 1, opacity: 1, ease: 'back.out(1.7)' };
         break;
       case 'slide-left':
         fromVars = isKonva ? { x: target.x() - 300, opacity: 0 } : { x: -300, opacity: 0 };
-        toVars = isKonva ? { ...toVars, x: target.x(), opacity: 1 } : { ...toVars, x: 0, opacity: 1 };
+        toVars = isKonva
+          ? { ...toVars, x: target.x(), opacity: 1 }
+          : { ...toVars, x: 0, opacity: 1 };
         break;
       case 'slide-right':
         fromVars = isKonva ? { x: target.x() + 300, opacity: 0 } : { x: 300, opacity: 0 };
-        toVars = isKonva ? { ...toVars, x: target.x(), opacity: 1 } : { ...toVars, x: 0, opacity: 1 };
+        toVars = isKonva
+          ? { ...toVars, x: target.x(), opacity: 1 }
+          : { ...toVars, x: 0, opacity: 1 };
         break;
       case 'slide-up':
         fromVars = isKonva ? { y: target.y() + 300, opacity: 0 } : { y: 300, opacity: 0 };
-        toVars = isKonva ? { ...toVars, y: target.y(), opacity: 1 } : { ...toVars, y: 0, opacity: 1 };
+        toVars = isKonva
+          ? { ...toVars, y: target.y(), opacity: 1 }
+          : { ...toVars, y: 0, opacity: 1 };
         break;
       case 'slide-down':
         fromVars = isKonva ? { y: target.y() - 300, opacity: 0 } : { y: -300, opacity: 0 };
-        toVars = isKonva ? { ...toVars, y: target.y(), opacity: 1 } : { ...toVars, y: 0, opacity: 1 };
+        toVars = isKonva
+          ? { ...toVars, y: target.y(), opacity: 1 }
+          : { ...toVars, y: 0, opacity: 1 };
+        break;
+      case 'slide-out-left':
+        fromVars = isKonva ? { x: target.x(), opacity: 1 } : { x: 0, opacity: 1 };
+        toVars = isKonva
+          ? { ...toVars, x: target.x() - 400, opacity: 0 }
+          : { ...toVars, x: -400, opacity: 0 };
+        break;
+      case 'slide-out-right':
+        fromVars = isKonva ? { x: target.x(), opacity: 1 } : { x: 0, opacity: 1 };
+        toVars = isKonva
+          ? { ...toVars, x: target.x() + 400, opacity: 0 }
+          : { ...toVars, x: 400, opacity: 0 };
         break;
       case 'rotate':
-        fromVars = isKonva ? { rotation: target.rotation() - 180, opacity: 0 } : { rotate: -180, opacity: 0 };
-        toVars = isKonva ? { ...toVars, rotation: target.rotation(), opacity: 1 } : { ...toVars, rotate: 0, opacity: 1 };
+        fromVars = isKonva
+          ? { rotation: target.rotation() - 180, opacity: 0 }
+          : { rotate: -180, opacity: 0 };
+        toVars = isKonva
+          ? { ...toVars, rotation: target.rotation(), opacity: 1 }
+          : { ...toVars, rotate: 0, opacity: 1 };
         break;
       case 'bounce':
         fromVars = isKonva ? { y: target.y() - 150 } : { y: -150 };
-        toVars = isKonva 
-          ? { ...toVars, y: target.y(), ease: 'bounce.out' } 
+        toVars = isKonva
+          ? { ...toVars, y: target.y(), ease: 'bounce.out' }
           : { ...toVars, y: 0, ease: 'bounce.out' };
         break;
       case 'flip':
-        // 3D perspective flip
-        fromVars = isKonva 
-          ? { rotationY: -180, opacity: 0 } 
+        fromVars = isKonva
+          ? { rotationY: -180, opacity: 0 }
           : { transformPerspective: 600, rotateY: -180, opacity: 0 };
-        toVars = isKonva 
-          ? { ...toVars, rotationY: 0, opacity: 1 } 
+        toVars = isKonva
+          ? { ...toVars, rotationY: 0, opacity: 1 }
           : { ...toVars, rotateY: 0, opacity: 1 };
+        break;
+      case 'blur-in':
+        fromVars = isKonva
+          ? { opacity: 0 }
+          : { opacity: 0, filter: 'blur(12px)' };
+        toVars = isKonva
+          ? { ...toVars, opacity: 1 }
+          : { ...toVars, opacity: 1, filter: 'blur(0px)' };
+        break;
+      case 'typewriter':
+        // Best-effort: fade + slight slide for non-text targets
+        fromVars = { opacity: 0, x: isKonva ? undefined : -20 };
+        toVars = { ...toVars, opacity: 1, x: isKonva ? undefined : 0, ease: 'none' };
+        break;
+      case 'pulse':
+        if (isKonva) {
+          fromVars = { scaleX: 1, scaleY: 1 };
+          toVars = {
+            ...toVars,
+            scaleX: 1.12,
+            scaleY: 1.12,
+            yoyo: true,
+            repeat: repeat === 0 ? 1 : repeat,
+            ease: 'power1.inOut',
+          };
+        } else {
+          fromVars = { scale: 1 };
+          toVars = {
+            ...toVars,
+            scale: 1.12,
+            yoyo: true,
+            repeat: repeat === 0 ? 1 : repeat,
+            ease: 'power1.inOut',
+          };
+        }
+        break;
+      case 'shake':
+        if (isKonva) {
+          const baseX = target.x();
+          fromVars = { x: baseX };
+          toVars = {
+            ...toVars,
+            keyframes: [
+              { x: baseX - 8 },
+              { x: baseX + 8 },
+              { x: baseX - 6 },
+              { x: baseX + 6 },
+              { x: baseX },
+            ],
+            ease: 'power1.inOut',
+          };
+        } else {
+          fromVars = { x: 0 };
+          toVars = {
+            ...toVars,
+            keyframes: [{ x: -8 }, { x: 8 }, { x: -6 }, { x: 6 }, { x: 0 }],
+            ease: 'power1.inOut',
+          };
+        }
+        break;
+      case 'wiggle':
+        if (isKonva) {
+          const base = target.rotation();
+          fromVars = { rotation: base };
+          toVars = {
+            ...toVars,
+            keyframes: [
+              { rotation: base - 8 },
+              { rotation: base + 8 },
+              { rotation: base - 5 },
+              { rotation: base + 5 },
+              { rotation: base },
+            ],
+          };
+        } else {
+          fromVars = { rotate: 0 };
+          toVars = {
+            ...toVars,
+            keyframes: [
+              { rotate: -8 },
+              { rotate: 8 },
+              { rotate: -5 },
+              { rotate: 5 },
+              { rotate: 0 },
+            ],
+          };
+        }
+        break;
+      case 'glow':
+        fromVars = isKonva ? { opacity: 1 } : { filter: 'brightness(1)' };
+        toVars = isKonva
+          ? { ...toVars, opacity: 1 }
+          : {
+              ...toVars,
+              keyframes: [
+                { filter: 'brightness(1)' },
+                { filter: 'brightness(1.4)' },
+                { filter: 'brightness(1)' },
+              ],
+              ease: 'power1.inOut',
+            };
         break;
       default:
         return null;
     }
   } else if (preset.type === 'custom' && preset.keyframes) {
-    // Custom keyframe animation
-    // Map custom progress ticks (0% - 100%) to GSAP keyframes array
     const kfs = preset.keyframes.map((kf) => {
       const kfObj: any = {};
       if (kf.opacity !== undefined) kfObj.opacity = kf.opacity;
-      if (kf.rotation !== undefined) kfObj.rotation = isKonva ? target.rotation() + kf.rotation : kf.rotation;
-      
+      if (kf.rotation !== undefined)
+        kfObj.rotation = isKonva ? target.rotation() + kf.rotation : kf.rotation;
       if (isKonva) {
         if (kf.x !== undefined) kfObj.x = target.x() + kf.x;
         if (kf.y !== undefined) kfObj.y = target.y() + kf.y;
@@ -116,11 +269,9 @@ export const applyAnimation = (
       }
       return kfObj;
     });
-
     toVars.keyframes = kfs;
   }
 
-  // Animate!
   if (isKonva) {
     const startX = target.x();
     const startY = target.y();
@@ -129,7 +280,6 @@ export const applyAnimation = (
     const startScaleY = target.scaleY();
     const startOpacity = target.opacity();
 
-    // Prepare proxy properties
     const state = {
       x: fromVars.x !== undefined ? fromVars.x : startX,
       y: fromVars.y !== undefined ? fromVars.y : startY,
@@ -139,7 +289,6 @@ export const applyAnimation = (
       opacity: fromVars.opacity !== undefined ? fromVars.opacity : startOpacity,
     };
 
-    // Apply immediate starting state to Konva
     target.setAttrs(state);
     target.getLayer()?.batchDraw();
 
@@ -150,7 +299,6 @@ export const applyAnimation = (
         target.getLayer()?.batchDraw();
       },
       onComplete: () => {
-        // Reset properties to original designed state on complete to avoid saving tweened position
         target.setAttrs({
           x: startX,
           y: startY,
@@ -160,7 +308,7 @@ export const applyAnimation = (
           opacity: startOpacity,
         });
         target.getLayer()?.batchDraw();
-      }
+      },
     });
 
     if (timeline) {
@@ -169,12 +317,10 @@ export const applyAnimation = (
     }
     return tween;
   } else {
-    // DOM Element animation
     if (timeline) {
       if (preset.type === 'builtin') {
         timeline.fromTo(target, fromVars, toVars, settings.startTime);
       } else {
-        // Custom preset timing setup
         const firstKf = preset.keyframes?.[0];
         const initialVars: any = {};
         if (firstKf) {
@@ -192,12 +338,10 @@ export const applyAnimation = (
       }
       return timeline;
     } else {
-      // Standalone tween
       if (preset.type === 'builtin') {
         gsap.set(target, fromVars);
         return gsap.to(target, toVars);
       } else {
-        // Custom preset
         const firstKf = preset.keyframes?.[0];
         const initialVars: any = {};
         if (firstKf) {

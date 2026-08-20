@@ -7,6 +7,7 @@ export const AnimationSchema = z.object({
   delay: z.number(),
   repeat: z.number(),
   ease: z.string().optional(),
+  soundSrc: z.string().nullable().optional(),
 }).nullable();
 
 export const BaseElementSchema = z.object({

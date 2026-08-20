@@ -5,6 +5,7 @@ import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
 import { Canvas } from './components/Canvas';
 import { PropertiesPanel } from './components/PropertiesPanel';
+import { AnimationTimeline } from './components/AnimationTimeline';
 import styles from './StoryBuilder.module.css';
 import type { Story } from '../core/types';
 
@@ -71,7 +72,10 @@ export const StoryBuilder: React.FC<StoryBuilderProps> = ({ initialData, onSave 
       
       <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
       
-      <Canvas />
+      <div className={styles.centerColumn}>
+        <Canvas />
+        <AnimationTimeline />
+      </div>
       
       <PropertiesPanel />
 

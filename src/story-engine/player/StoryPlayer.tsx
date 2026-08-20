@@ -382,6 +382,31 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
           );
         });
 
+        // Per-element animation sounds (attached in the builder timeline)
+        slide.elements.forEach((el) => {
+          const src = el.animation?.soundSrc;
+          if (!src) return;
+          const audioObj = new Audio();
+          audioObj.preload = 'auto';
+          audioObj.src = src;
+          try { audioObj.load(); } catch { /* ignore */ }
+          slideSoundEffectsRef.current.push(audioObj);
+          tl.call(
+            () => {
+              try {
+                audioObj.pause();
+                audioObj.currentTime = 0;
+                const playPromise = audioObj.play();
+                if (playPromise && typeof playPromise.catch === 'function') {
+                  playPromise.catch(() => {});
+                }
+              } catch { /* ignore */ }
+            },
+            undefined,
+            Math.max(0, el.animation?.startTime || 0)
+          );
+        });
+
         // Record each distinct animation start-time as a build step boundary so manual
         // navigation can stop after each one instead of firing everything at once. The
         // timeline's total duration is appended as the final target - without it, the

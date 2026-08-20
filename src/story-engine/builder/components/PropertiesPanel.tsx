@@ -3,7 +3,7 @@ import { useStoryStore } from '../../store/useStoryStore';
 import type { TextElement, ImageElement } from '../../core/types';
 import { Trash2, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, AlignJustify, Star, Sparkles, Play } from 'lucide-react';
 import styles from '../StoryBuilder.module.css';
-import { BUILTIN_PRESETS } from '../../utils/animationEngine';
+import { BUILTIN_PRESETS, PRESET_CATEGORIES } from '../../utils/animationEngine';
 import { AnimationCreator } from './AnimationCreator';
 import { AudioRecorder } from './AudioRecorder';
 import { GOOGLE_ARABIC_FONTS, loadGoogleFont } from '../../utils/fontLoader';
@@ -396,22 +396,22 @@ export const PropertiesPanel: React.FC = () => {
                       className={styles.input}
                       style={{ flex: 1 }}
                     >
-                      <optgroup label={isRTL ? "الحركات الافتراضية" : "Built-in Presets"}>
-                        {BUILTIN_PRESETS.map(p => (
-                          <option key={p.id} value={p.id}>
-                            {p.name} {favoritePresetIds.includes(p.id) ? '★' : ''}
-                          </option>
-                        ))}
-                      </optgroup>
-                      {customPresets.length > 0 && (
-                        <optgroup label={isRTL ? "الحركات المخصصة" : "Custom Presets"}>
-                          {customPresets.map(p => (
-                            <option key={p.id} value={p.id}>
-                              {p.name} {favoritePresetIds.includes(p.id) ? '★' : ''}
-                            </option>
-                          ))}
-                        </optgroup>
-                      )}
+                      {PRESET_CATEGORIES.map(cat => {
+                        const items = [
+                          ...BUILTIN_PRESETS.filter(p => (p.category || 'entrance') === cat.id),
+                          ...(cat.id === 'custom' ? customPresets : []),
+                        ];
+                        if (items.length === 0) return null;
+                        return (
+                          <optgroup key={cat.id} label={isRTL ? cat.labelAr : cat.labelEn}>
+                            {items.map(p => (
+                              <option key={p.id} value={p.id}>
+                                {(p.icon ? p.icon + ' ' : '') + p.name}{favoritePresetIds.includes(p.id) ? ' ★' : ''}
+                              </option>
+                            ))}
+                          </optgroup>
+                        );
+                      })}
                     </select>
                     
                     {/* Favorite toggle */}
@@ -520,6 +520,47 @@ export const PropertiesPanel: React.FC = () => {
                     <option value="2">{isRTL ? "3 مرات" : "3 Times"}</option>
                     <option value="-1">{isRTL ? "مستمر للأبد (Loop)" : "Infinite Loop"}</option>
                   </select>
+                </div>
+
+
+                {/* Animation sound */}
+                <div>
+                  <label className={styles.controlGroupLabel}>{isRTL ? 'صوت مع الحركة:' : 'Animation sound:'}</label>
+                  <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
+                    <label className={styles.btn} style={{ flex: 1, cursor: 'pointer', textAlign: 'center' }}>
+                      <span>{selectedElement.animation.soundSrc ? (isRTL ? '✓ صوت مرفق' : '✓ Sound attached') : (isRTL ? 'إرفاق صوت' : 'Attach sound')}</span>
+                      <input
+                        type="file"
+                        accept="audio/*"
+                        hidden
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            setElementAnimation(selectedElement.id, {
+                              ...selectedElement.animation!,
+                              soundSrc: reader.result as string,
+                            });
+                          };
+                          reader.readAsDataURL(file);
+                        }}
+                      />
+                    </label>
+                    {selectedElement.animation.soundSrc && (
+                      <button
+                        className={`${styles.btn} ${styles.btnDanger}`}
+                        style={{ padding: '8px 12px' }}
+                        onClick={() => setElementAnimation(selectedElement.id, {
+                          ...selectedElement.animation!,
+                          soundSrc: null,
+                        })}
+                        title={isRTL ? 'إزالة الصوت' : 'Remove sound'}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Preview and Remove Action Buttons */}

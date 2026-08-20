@@ -19,6 +19,8 @@ export interface BaseElement {
     delay: number;
     repeat: number;
     ease?: string;
+    /** Optional SFX played when this animation starts */
+    soundSrc?: string | null;
   } | null;
 }
 
@@ -110,4 +112,8 @@ export interface AnimationPreset {
   type: 'builtin' | 'custom';
   keyframes?: CustomKeyframe[];
   favorite?: boolean;
+  /** UI grouping: entrance | emphasis | exit | custom */
+  category?: 'entrance' | 'emphasis' | 'exit' | 'custom';
+  /** Emoji / short label for the timeline chips */
+  icon?: string;
 }
