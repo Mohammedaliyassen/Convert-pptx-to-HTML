@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import type { Story, Slide, StoryElement, TextElement, ImageElement } from '../core/types';
+import type { Story, Slide, StoryElement, TextElement, ImageElement, ClickTrigger, ClickAction } from '../core/types';
 import { compressImageToBase64 } from '../utils/imageCompressor';
 
 // Helper to convert Blob to base64 Data URL (avoids FileReader when possible)
@@ -948,6 +948,17 @@ export const importPptxFromFile = async (
         const groups: Element[] = [];
         seqs.forEach((seq) => {
           const seqCTn = getTag(seq, 'cTn');
+          // Skip interactive sequences — those are click-triggered, not timed
+          // build steps. Including them here pollutes the animation clock and
+          // attaches click-SFX to the linear timeline incorrectly.
+          const nodeType =
+            seqCTn?.getAttribute('nodeType') || seq.getAttribute('nodeType') || '';
+          if (nodeType === 'interactiveSeq') return;
+          // Also skip seqs that start with an onClick condition
+          const stCondLst = seqCTn ? getTag(seqCTn, 'stCondLst') : null;
+          const firstCond = stCondLst ? getTag(stCondLst, 'cond') : null;
+          if (firstCond?.getAttribute('evt') === 'onClick') return;
+
           const childTnLst = seqCTn ? getTag(seqCTn, 'childTnLst') : null;
           if (childTnLst) {
             groups.push(...directChildren(childTnLst, 'par'));
@@ -1134,6 +1145,285 @@ export const importPptxFromFile = async (
       console.warn('Could not parse slide timing animations:', timingErr);
     }
 
+    // ------------------------------------------------------------------
+    // Interactive click triggers (quiz answers, buttons, hotspots)
+    // ------------------------------------------------------------------
+    // Generic extraction that works for any PPTX that uses PowerPoint's
+    // interactiveSeq + onClick timing model (quizzes, buttons, hotspots…).
+    //
+    // For each interactive sequence we record:
+    //   • which shape the user clicks
+    //   • which shapes to show/hide (set visibility / entrance effects)
+    //   • which sound to play (cmd playFrom targeting a media shape that
+    //     carries an a:audioFile / p:nvPr media relationship)
+    const clickTriggers: ClickTrigger[] = [];
+    const elementsToHide = new Set<string>();
+
+    // Build shapeId → audio rIds / image element ids by scanning the slide XML.
+    // Media pictures often embed BOTH a blip (image) and an audioFile.
+    const shapeAudioEmbeds = new Map<string, string[]>(); // spid → rId[]
+    try {
+      const allCNvPr = getTags(sld, 'cNvPr');
+      for (const cNv of allCNvPr) {
+        const sid = cNv.getAttribute('id');
+        if (!sid) continue;
+        // Walk up to the owning pic/sp/graphicFrame
+        let node: Element | null = cNv.parentElement;
+        let owner: Element | null = null;
+        while (node) {
+          const ln = node.localName;
+          if (ln === 'pic' || ln === 'sp' || ln === 'graphicFrame' || ln === 'cxnSp') {
+            owner = node;
+            break;
+          }
+          node = node.parentElement;
+        }
+        if (!owner) continue;
+        const embeds: string[] = [];
+        // a:audioFile r:link / r:embed
+        for (const af of Array.from(owner.getElementsByTagNameNS('*', 'audioFile'))) {
+          const e =
+            af.getAttribute('r:link') ||
+            af.getAttribute('link') ||
+            af.getAttribute('r:embed') ||
+            af.getAttribute('embed');
+          if (e) embeds.push(e);
+        }
+        // p:nvPr / a:extLst media relationships
+        for (const el of Array.from(owner.querySelectorAll('*'))) {
+          for (const attr of ['r:embed', 'embed', 'r:link', 'link']) {
+            const v = el.getAttribute(attr);
+            if (!v) continue;
+            // Only keep if the relationship target looks like audio
+            const target = relsMap[v];
+            if (target && /\.(mp3|wav|m4a|wma|ogg|aac|mid)$/i.test(target)) {
+              embeds.push(v);
+            }
+          }
+        }
+        if (embeds.length) {
+          shapeAudioEmbeds.set(sid, [...new Set(embeds)]);
+        }
+      }
+    } catch (e) {
+      console.warn('Could not build shape→audio map:', e);
+    }
+
+    try {
+      const timing = getTag(sld, 'timing');
+      if (timing) {
+        const allSeqs = getTags(timing, 'seq');
+        const interactiveSeqs: Element[] = [];
+
+        for (const seq of allSeqs) {
+          const cTn = getTag(seq, 'cTn');
+          const nodeType =
+            cTn?.getAttribute('nodeType') || seq.getAttribute('nodeType') || '';
+          if (nodeType === 'interactiveSeq') {
+            interactiveSeqs.push(seq);
+            continue;
+          }
+          // Fallback: any seq whose start condition is onClick
+          const stCondLst = cTn ? getTag(cTn, 'stCondLst') : null;
+          const firstCond = stCondLst ? getTag(stCondLst, 'cond') : null;
+          if (firstCond?.getAttribute('evt') === 'onClick') {
+            interactiveSeqs.push(seq);
+          }
+        }
+
+        for (const seq of interactiveSeqs) {
+          const seqCTn = getTag(seq, 'cTn');
+          if (!seqCTn) continue;
+
+          // --- 1) Click target shape ---
+          let clickSpid: string | null = null;
+          const stCondLst = getTag(seqCTn, 'stCondLst');
+          if (stCondLst) {
+            for (const cond of getTags(stCondLst, 'cond')) {
+              if (cond.getAttribute('evt') === 'onClick') {
+                const spTgt = getTag(cond, 'spTgt');
+                clickSpid = spTgt?.getAttribute('spid') || null;
+                if (clickSpid) break;
+              }
+            }
+          }
+          if (!clickSpid) {
+            for (const cond of getTags(seq, 'cond')) {
+              if (cond.getAttribute('evt') === 'onClick') {
+                const spTgt = getTag(cond, 'spTgt');
+                clickSpid = spTgt?.getAttribute('spid') || null;
+                if (clickSpid) break;
+              }
+            }
+          }
+          if (!clickSpid || !idMap.has(clickSpid)) continue;
+
+          const targetElementId = idMap.get(clickSpid)![0];
+          const actions: ClickAction[] = [];
+          const seenSound = new Set<string>();
+          const seenShow = new Set<string>();
+
+          const addShow = (spid: string) => {
+            const ids = idMap.get(spid);
+            if (!ids) return;
+            for (const tid of ids) {
+              if (seenShow.has(tid)) continue;
+              seenShow.add(tid);
+              actions.push({ type: 'show', targetId: tid });
+              elementsToHide.add(tid);
+            }
+          };
+
+          const addSoundFromEmbed = async (embedId: string) => {
+            if (!embedId || seenSound.has(embedId)) return;
+            const mediaPath = relsMap[embedId];
+            if (!mediaPath) return;
+            if (!/\.(mp3|wav|m4a|wma|ogg|aac|mid)$/i.test(mediaPath) &&
+                !mediaPath.toLowerCase().includes('/media/')) {
+              return;
+            }
+            seenSound.add(embedId);
+            const dataUrl = await loadSoundDataUrl(mediaPath);
+            if (dataUrl) actions.push({ type: 'playSound', src: dataUrl });
+          };
+
+          const addSoundFromShape = async (spid: string) => {
+            const embeds = shapeAudioEmbeds.get(spid) || [];
+            for (const e of embeds) await addSoundFromEmbed(e);
+          };
+
+          // --- 2) Visibility / entrance effects → show ---
+          for (const setNode of getTags(seq, 'set')) {
+            const attrNameEl = getTag(setNode, 'attrName');
+            const attrText = (
+              attrNameEl?.textContent ||
+              attrNameEl?.getAttribute('val') ||
+              ''
+            ).toLowerCase();
+            // Accept visibility and opacity sets
+            if (
+              attrText &&
+              !attrText.includes('visibility') &&
+              !attrText.includes('opacity')
+            ) {
+              continue;
+            }
+            const cBhvr = getTag(setNode, 'cBhvr');
+            const tgtEl = cBhvr ? getTag(cBhvr, 'tgtEl') : getTag(setNode, 'tgtEl');
+            const spTgt = tgtEl ? getTag(tgtEl, 'spTgt') : getTag(setNode, 'spTgt');
+            const targetSpid = spTgt?.getAttribute('spid');
+            if (!targetSpid) continue;
+
+            const toNode = getTag(setNode, 'to');
+            let toLower = '';
+            if (toNode) {
+              const strVal =
+                getTag(toNode, 'strVal') ||
+                Array.from(toNode.children || []).find(
+                  (c) => (c as Element).localName === 'strVal'
+                );
+              toLower = (
+                (strVal as Element | undefined)?.getAttribute('val') ||
+                toNode.getAttribute('val') ||
+                toNode.textContent ||
+                ''
+              ).toLowerCase();
+            }
+            const isHide =
+              toLower.includes('hidden') || toLower === '0' || toLower === 'false';
+            if (isHide) {
+              const ids = idMap.get(targetSpid);
+              if (ids) {
+                for (const tid of ids) {
+                  actions.push({ type: 'hide', targetId: tid });
+                }
+              }
+            } else {
+              // visible / empty / opacity 1 → show
+              addShow(targetSpid);
+            }
+          }
+
+          // Entrance animEffect inside the interactive seq also implies "show"
+          for (const animNode of [
+            ...getTags(seq, 'animEffect'),
+            ...getTags(seq, 'anim'),
+          ]) {
+            const cBhvr = getTag(animNode, 'cBhvr');
+            const tgtEl = cBhvr ? getTag(cBhvr, 'tgtEl') : getTag(animNode, 'tgtEl');
+            const spTgt = tgtEl ? getTag(tgtEl, 'spTgt') : getTag(animNode, 'spTgt');
+            const targetSpid = spTgt?.getAttribute('spid');
+            if (targetSpid) addShow(targetSpid);
+          }
+
+          // --- 3) cmd playFrom → show media shape + play its audio ---
+          for (const cmdNode of getTags(seq, 'cmd')) {
+            const cmdAttr = (cmdNode.getAttribute('cmd') || '').toLowerCase();
+            const typeAttr = (cmdNode.getAttribute('type') || '').toLowerCase();
+            if (
+              !(cmdAttr.includes('play') || typeAttr === 'call' || typeAttr === 'verb')
+            ) {
+              continue;
+            }
+            const cBhvr = getTag(cmdNode, 'cBhvr');
+            const tgtEl = cBhvr ? getTag(cBhvr, 'tgtEl') : null;
+            const spTgt = tgtEl
+              ? getTag(tgtEl, 'spTgt')
+              : getTag(cmdNode, 'spTgt');
+            const mediaSpid = spTgt?.getAttribute('spid');
+            if (mediaSpid) {
+              // The media picture itself should become visible
+              addShow(mediaSpid);
+              // And its linked audio should play
+              await addSoundFromShape(mediaSpid);
+            }
+            // Also pick up any embed directly on the cmd subtree
+            for (const el of Array.from(cmdNode.querySelectorAll('*'))) {
+              const emb =
+                el.getAttribute('r:embed') ||
+                el.getAttribute('embed') ||
+                el.getAttribute('r:link') ||
+                el.getAttribute('link');
+              if (emb) await addSoundFromEmbed(emb);
+            }
+          }
+
+          // Explicit audio / sndTgt nodes
+          for (const soundNode of [
+            ...getTags(seq, 'audio'),
+            ...getTags(seq, 'sndTgt'),
+            ...getTags(seq, 'snd'),
+          ]) {
+            const embedId = extractSoundEmbedId(soundNode);
+            if (embedId) await addSoundFromEmbed(embedId);
+          }
+
+          if (actions.length > 0) {
+            const existing = clickTriggers.find(
+              (t) => t.targetElementId === targetElementId
+            );
+            if (existing) {
+              existing.actions.push(...actions);
+            } else {
+              clickTriggers.push({ targetElementId, actions });
+            }
+          }
+        }
+
+        // Feedback / media elements that are only revealed by a click start hidden
+        for (const el of elements) {
+          if (elementsToHide.has(el.id)) {
+            el.hidden = true;
+          }
+        }
+      }
+    } catch (clickErr) {
+      console.warn(
+        `Could not parse interactive click triggers on slide ${slideNum}:`,
+        clickErr
+      );
+    }
+
     // Scan relationships for any audio file
     let slideAudioUrl = '';
     let slideAudioName = '';
@@ -1202,6 +1492,7 @@ export const importPptxFromFile = async (
         duration: slideAudioDuration,
       } : null,
       animationSounds: slideAnimationSounds.length > 0 ? slideAnimationSounds : undefined,
+      clickTriggers: clickTriggers.length > 0 ? clickTriggers : undefined,
     };
     slides.push(slide);
     } catch (slideErr) {

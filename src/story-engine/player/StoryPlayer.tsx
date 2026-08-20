@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import type { Story, Slide, StoryElement } from '../core/types';
+import type { Story, Slide, StoryElement, ClickAction } from '../core/types';
 import styles from './StoryPlayer.module.css';
 import { Play, Pause, ChevronLeft, ChevronRight, Maximize2, Minimize2, X } from 'lucide-react';
 import { useStoryStore } from '../store/useStoryStore';
@@ -25,6 +25,9 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
   const [isPlaying, setIsPlaying] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [scale, setScale] = useState(1);
+  // Runtime visibility overrides for interactive feedback images (correct/wrong).
+  // Key = element id, value = currently visible?
+  const [runtimeVisible, setRuntimeVisible] = useState<Record<string, boolean>>({});
 
   const playerRef = useRef<HTMLDivElement>(null);
   const autoplayTimer = useRef<any>(null);
@@ -37,6 +40,8 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
   // "Play Sound" animation effect audio objects for the current slide, so they can be
   // stopped/reset whenever the slide changes.
   const slideSoundEffectsRef = useRef<HTMLAudioElement[]>([]);
+  // Short-lived audio objects created by interactive click actions
+  const clickAudioRef = useRef<HTMLAudioElement[]>([]);
 
   const baseWidth = 1200;
   const baseHeight = 675;
@@ -68,6 +73,20 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
     };
   }, [handleResize]);
 
+  // Reset interactive visibility + stop click SFX whenever the slide changes
+  useEffect(() => {
+    setRuntimeVisible({});
+    clickAudioRef.current.forEach((a) => {
+      try {
+        a.pause();
+        a.src = '';
+      } catch {
+        /* ignore */
+      }
+    });
+    clickAudioRef.current = [];
+  }, [currentSlideIndex]);
+
   // Handle slide change
   const goToNextSlide = useCallback(() => {
     if (currentSlideIndex < story.slides.length - 1) {
@@ -82,6 +101,64 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
       setCurrentSlideIndex((prev) => prev - 1);
     }
   }, [currentSlideIndex]);
+
+  /**
+   * Execute a single interactive click action (play sound / show / hide / toggle).
+   */
+  const runClickAction = useCallback((action: ClickAction) => {
+    if (action.type === 'playSound') {
+      try {
+        const audio = new Audio(action.src);
+        clickAudioRef.current.push(audio);
+        audio.play().catch((err) => {
+          console.warn('Click sound blocked:', err);
+        });
+      } catch (err) {
+        console.warn('Failed to play click sound:', err);
+      }
+      return;
+    }
+
+    if (action.type === 'show') {
+      setRuntimeVisible((prev) => ({ ...prev, [action.targetId]: true }));
+      return;
+    }
+    if (action.type === 'hide') {
+      setRuntimeVisible((prev) => ({ ...prev, [action.targetId]: false }));
+      return;
+    }
+    if (action.type === 'toggle') {
+      setRuntimeVisible((prev) => {
+        const currently =
+          prev[action.targetId] !== undefined
+            ? prev[action.targetId]
+            : false;
+        return { ...prev, [action.targetId]: !currently };
+      });
+    }
+  }, []);
+
+  /**
+   * Handle a click on an element that has one or more ClickTriggers.
+   */
+  const handleElementClick = useCallback(
+    (elementId: string) => {
+      const slide = story.slides[currentSlideIndex];
+      if (!slide?.clickTriggers?.length) return;
+
+      const triggers = slide.clickTriggers.filter(
+        (t) => t.targetElementId === elementId
+      );
+      if (triggers.length === 0) return;
+
+      for (const trigger of triggers) {
+        for (const action of trigger.actions) {
+          runClickAction(action);
+        }
+      }
+    },
+    [story.slides, currentSlideIndex, runClickAction]
+  );
 
   // Play through the current slide's animations one build-step at a time, the way
   // PowerPoint does: a click/space advances to the next animation start-time instead
@@ -99,13 +176,23 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
     return true;
   }, []);
 
-  // Used for "move forward" inputs (space, the forward nav button, forward swipe).
-  // While in manual (non-autoplay) mode, this steps through animations first and
-  // only advances the slide once every build step has played.
+  // Used for "move forward" inputs (space / swipe).
+  // Steps through timed animations first, then advances the slide.
+  // Interactive click triggers (quiz answers) never block navigation.
   const advanceOrNextSlide = useCallback(() => {
     if (!isPlaying && advanceAnimationStep()) return;
     goToNextSlide();
   }, [isPlaying, advanceAnimationStep, goToNextSlide]);
+
+  // Bottom nav arrows always change slides immediately so quiz / interactive
+  // slides can never lock the user.
+  const navNextSlide = useCallback(() => {
+    goToNextSlide();
+  }, [goToNextSlide]);
+
+  const navPrevSlide = useCallback(() => {
+    goToPrevSlide();
+  }, [goToPrevSlide]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -413,7 +500,16 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
 
   // Render elements in standard HTML
   const renderElement = (el: StoryElement) => {
-    if (el.hidden) return null;
+    // Resolve effective visibility:
+    // 1) runtimeVisible override (from interactive clicks) wins
+    // 2) otherwise fall back to the element's static `hidden` flag
+    const hasRuntime = Object.prototype.hasOwnProperty.call(runtimeVisible, el.id);
+    const isVisible = hasRuntime ? runtimeVisible[el.id] : !el.hidden;
+    if (!isVisible) return null;
+
+    // Is this element a clickable hotspot?
+    const isClickable =
+      !!currentSlide?.clickTriggers?.some((t) => t.targetElementId === el.id);
 
     const style: React.CSSProperties = {
       position: 'absolute',
@@ -424,7 +520,27 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
       transform: `rotate(${el.rotation || 0}deg)`,
       opacity: el.opacity,
       zIndex: el.zIndex,
+      cursor: isClickable ? 'pointer' : undefined,
+      // Prevent text selection on quiz answer boxes
+      userSelect: isClickable ? 'none' : undefined,
     };
+
+    const clickProps = isClickable
+      ? {
+          onClick: (e: React.MouseEvent) => {
+            e.stopPropagation();
+            handleElementClick(el.id);
+          },
+          role: 'button' as const,
+          tabIndex: 0,
+          onKeyDown: (e: React.KeyboardEvent) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              handleElementClick(el.id);
+            }
+          },
+        }
+      : {};
 
     if (el.type === 'text') {
       const textEl = el;
@@ -447,6 +563,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
             wordBreak: 'normal',
             overflowWrap: 'break-word',
           }}
+          {...clickProps}
         >
           {textEl.text}
         </div>
@@ -461,10 +578,12 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
           id={`player-el-${el.id}`}
           src={imgEl.src}
           alt=""
+          draggable={false}
           style={{
             ...style,
             objectFit: 'fill',
           }}
+          {...clickProps}
         />
       );
     }
@@ -524,7 +643,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
       <div className={styles.bottomControlBar}>
         <button
           className={styles.navButton}
-          onClick={isRTL ? advanceOrNextSlide : goToPrevSlide}
+          onClick={isRTL ? navNextSlide : navPrevSlide}
           disabled={isRTL ? currentSlideIndex === story.slides.length - 1 : currentSlideIndex === 0}
         >
           <ChevronLeft size={24} />
@@ -536,7 +655,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
 
         <button
           className={styles.navButton}
-          onClick={isRTL ? goToPrevSlide : advanceOrNextSlide}
+          onClick={isRTL ? navPrevSlide : navNextSlide}
           disabled={isRTL ? currentSlideIndex === 0 : currentSlideIndex === story.slides.length - 1}
         >
           <ChevronRight size={24} />

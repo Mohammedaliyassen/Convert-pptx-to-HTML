@@ -50,6 +50,24 @@ export interface SlideBackground {
   value: string; // color hex, CSS gradient string, or image/video URL
 }
 
+/** Actions that run when the user clicks a specific element */
+export type ClickAction =
+  | { type: 'playSound'; src: string }
+  | { type: 'show'; targetId: string }
+  | { type: 'hide'; targetId: string }
+  | { type: 'toggle'; targetId: string };
+
+/**
+ * Interactive click handler extracted from PowerPoint interactiveSeq /
+ * onClick timing nodes (used heavily by quiz answer choices).
+ */
+export interface ClickTrigger {
+  /** Internal element id that the user clicks */
+  targetElementId: string;
+  /** Actions fired when this element is clicked */
+  actions: ClickAction[];
+}
+
 export interface Slide {
   id: string;
   background: SlideBackground;
@@ -64,6 +82,8 @@ export interface Slide {
   // step) are not tied to any single shape, so they're kept as slide-level cues
   // keyed to the timeline position (in seconds) they should fire at.
   animationSounds?: { startTime: number; src: string }[];
+  /** Interactive click handlers (quiz answers, buttons, hotspots, etc.) */
+  clickTriggers?: ClickTrigger[];
 }
 
 export interface Story {

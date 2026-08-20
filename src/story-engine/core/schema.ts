@@ -53,6 +53,18 @@ export const SlideBackgroundSchema = z.object({
   value: z.string(),
 });
 
+export const ClickActionSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('playSound'), src: z.string() }),
+  z.object({ type: z.literal('show'), targetId: z.string() }),
+  z.object({ type: z.literal('hide'), targetId: z.string() }),
+  z.object({ type: z.literal('toggle'), targetId: z.string() }),
+]);
+
+export const ClickTriggerSchema = z.object({
+  targetElementId: z.string(),
+  actions: z.array(ClickActionSchema).default([]),
+});
+
 export const SlideSchema = z.object({
   id: z.string(),
   background: SlideBackgroundSchema,
@@ -63,6 +75,11 @@ export const SlideSchema = z.object({
     duration: z.number(),
   }).nullable().optional(),
   duration: z.number().default(4).optional(),
+  animationSounds: z.array(z.object({
+    startTime: z.number(),
+    src: z.string(),
+  })).optional(),
+  clickTriggers: z.array(ClickTriggerSchema).optional(),
 });
 
 export const StorySchema = z.object({
