@@ -1,16 +1,16 @@
 .builderContainer {
   display: grid;
-  grid-template-rows: 60px 1fr;
-  grid-template-columns: 260px 1fr 300px;
+  grid-template-rows: 56px 1fr;
+  grid-template-columns: 272px 1fr 320px;
   grid-template-areas:
     "toolbar toolbar toolbar"
     "sidebar center inspector";
   width: 100%;
   height: 100vh;
   min-height: 600px;
-  background-color: #1a1b1f;
-  color: #e1e2e6;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: #0f1115;
+  color: #e8eaed;
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
   overflow: hidden;
 }
 
@@ -29,10 +29,12 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0 20px;
-  background-color: #26282e;
-  border-bottom: 1px solid #34373f;
+  gap: 12px;
+  padding: 0 16px;
+  background: linear-gradient(180deg, #1c1e24 0%, #16181d 100%);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
   z-index: 10;
+  backdrop-filter: blur(12px);
 }
 
 .toolbarSection {
@@ -42,21 +44,25 @@
 }
 
 .titleInput {
-  background: transparent;
+  background: rgba(255,255,255,0.04);
   border: 1px solid transparent;
-  color: #ffffff;
-  font-size: 1rem;
+  color: #f3f4f6;
+  font-size: 0.95rem;
   font-weight: 600;
-  padding: 4px 8px;
-  border-radius: 4px;
+  padding: 7px 12px;
+  border-radius: 10px;
   outline: none;
-  width: 200px;
-  transition: border-color 0.2s, background-color 0.2s;
+  width: 220px;
+  transition: border-color 0.2s, background-color 0.2s, box-shadow 0.2s;
 }
 
 .titleInput:focus, .titleInput:hover {
-  background: #1a1b1f;
-  border-color: #4a4f5a;
+  background: rgba(255,255,255,0.07);
+  border-color: rgba(99, 102, 241, 0.45);
+}
+
+.titleInput:focus {
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
 }
 
 /* Sidebar Area */
@@ -468,4 +474,129 @@
   color: #ced4da;
   pointer-events: none;
   opacity: 0.8;
+}
+
+
+/* —— Modern polish overrides —— */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.05);
+  color: #e5e7eb;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s, box-shadow 0.15s;
+}
+
+.btn:hover:not(:disabled) {
+  background: rgba(255,255,255,0.1);
+  border-color: rgba(255,255,255,0.14);
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.btnActive {
+  background: linear-gradient(135deg, #6366f1, #3b82f6) !important;
+  border-color: transparent !important;
+  color: #fff !important;
+  box-shadow: 0 4px 14px rgba(59, 130, 246, 0.35);
+}
+
+.btnDanger {
+  color: #fca5a5 !important;
+}
+
+.btnDanger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.15) !important;
+  border-color: rgba(239, 68, 68, 0.35) !important;
+}
+
+.sidebar {
+  background: #14161b !important;
+  border-right: 1px solid rgba(255,255,255,0.05) !important;
+}
+
+.inspector {
+  background: #14161b !important;
+  border-left: 1px solid rgba(255,255,255,0.05) !important;
+}
+
+.inspectorSection {
+  padding: 14px 16px !important;
+}
+
+.sectionTitle {
+  font-size: 0.72rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+  color: #9ca3af !important;
+  margin-bottom: 10px !important;
+}
+
+.canvasArea {
+  background:
+    radial-gradient(ellipse at 50% 40%, rgba(99,102,241,0.06), transparent 55%),
+    #0c0d10 !important;
+}
+
+.canvasStageWrapper {
+  border-radius: 12px !important;
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.06),
+    0 20px 50px rgba(0,0,0,0.55) !important;
+}
+
+.input {
+  background: rgba(255,255,255,0.04) !important;
+  border: 1px solid rgba(255,255,255,0.1) !important;
+  border-radius: 8px !important;
+  color: #e5e7eb !important;
+  padding: 8px 10px !important;
+}
+
+.input:focus {
+  border-color: rgba(99,102,241,0.5) !important;
+  outline: none !important;
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.12) !important;
+}
+
+.slideThumbnailCard {
+  border-radius: 12px !important;
+  border: 1px solid rgba(255,255,255,0.06) !important;
+  overflow: hidden !important;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s !important;
+}
+
+.slideThumbnailCard:hover {
+  border-color: rgba(255,255,255,0.12) !important;
+  transform: translateY(-1px);
+}
+
+.tabButton {
+  border-radius: 8px 8px 0 0 !important;
+  font-weight: 600 !important;
+}
+
+.playerModalOverlay {
+  background: rgba(8, 9, 12, 0.78) !important;
+  backdrop-filter: blur(8px) !important;
+}
+
+.playerModalContent {
+  border-radius: 16px !important;
+  overflow: hidden !important;
+  box-shadow: 0 25px 80px rgba(0,0,0,0.65) !important;
 }

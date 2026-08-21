@@ -59,27 +59,104 @@ const isColorDark = (hex: string): boolean => {
 };
 
 // Resolve PowerPoint theme scheme colors to actual HEX codes
-const resolveSchemeColor = (schemeVal: string | null, isBgDark: boolean): string => {
+/** Optional theme color map loaded from ppt/theme/theme1.xml */
+type ThemeColorMap = Record<string, string>;
+
+const parseThemeColors = (themeXml: string | undefined | null): ThemeColorMap => {
+  const map: ThemeColorMap = {};
+  if (!themeXml) return map;
+  try {
+    const doc = new DOMParser().parseFromString(themeXml, 'text/xml');
+    const clrScheme =
+      doc.getElementsByTagNameNS('*', 'clrScheme')[0] ||
+      doc.getElementsByTagName('a:clrScheme')[0];
+    if (!clrScheme) return map;
+    Array.from(clrScheme.children).forEach((node) => {
+      const name = (node as Element).localName;
+      if (!name) return;
+      const srgb =
+        (node as Element).getElementsByTagNameNS('*', 'srgbClr')[0] ||
+        (node as Element).getElementsByTagName('a:srgbClr')[0];
+      const sys =
+        (node as Element).getElementsByTagNameNS('*', 'sysClr')[0] ||
+        (node as Element).getElementsByTagName('a:sysClr')[0];
+      const lastClr = sys?.getAttribute('lastClr');
+      const val = srgb?.getAttribute('val') || lastClr;
+      if (val) map[name] = `#${val.replace(/^#/, '')}`;
+    });
+  } catch {
+    /* ignore theme parse errors */
+  }
+  return map;
+};
+
+const resolveSchemeColor = (
+  schemeVal: string | null,
+  isBgDark: boolean,
+  themeMap?: ThemeColorMap
+): string => {
   if (!schemeVal) return isBgDark ? '#ffffff' : '#1a1b1f';
-  
+  if (themeMap && themeMap[schemeVal]) return themeMap[schemeVal];
+
+  // Fallbacks matching typical Office theme
   switch (schemeVal) {
     case 'tx1':
     case 'dk1':
+      return themeMap?.dk1 || '#000000';
     case 'dk2':
-      return '#1a1b1f'; // dark text/fill
+      return themeMap?.dk2 || '#44546A';
     case 'bg1':
     case 'lt1':
+      return themeMap?.lt1 || '#FFFFFF';
     case 'lt2':
-      return '#ffffff'; // light text/fill
-    case 'accent1': return '#2f80ed'; // standard blue
-    case 'accent2': return '#eb5757'; // standard red
-    case 'accent3': return '#27ae60'; // standard green
-    case 'accent4': return '#f2c94c'; // standard yellow
-    case 'accent5': return '#9b51e0'; // purple
-    case 'accent6': return '#f2994a'; // orange
+      return themeMap?.lt2 || '#E7E6E6';
+    case 'accent1':
+      return themeMap?.accent1 || '#4472C4';
+    case 'accent2':
+      return themeMap?.accent2 || '#ED7D31';
+    case 'accent3':
+      return themeMap?.accent3 || '#A5A5A5';
+    case 'accent4':
+      return themeMap?.accent4 || '#FFC000';
+    case 'accent5':
+      return themeMap?.accent5 || '#5B9BD5';
+    case 'accent6':
+      return themeMap?.accent6 || '#70AD47';
+    case 'hlink':
+      return themeMap?.hlink || '#0563C1';
+    case 'folHlink':
+      return themeMap?.folHlink || '#954F72';
     default:
       return isBgDark ? '#ffffff' : '#1a1b1f';
   }
+};
+
+/** Extract solid fill color from a shape/run style node */
+const extractSolidColor = (
+  parent: Element | null,
+  isBgDark: boolean,
+  themeMap?: ThemeColorMap,
+  getTagFn?: (p: Element, t: string) => Element | null
+): string | null => {
+  if (!parent || !getTagFn) return null;
+  const solidFill = getTagFn(parent, 'solidFill');
+  if (!solidFill) return null;
+  const srgbClr = getTagFn(solidFill, 'srgbClr');
+  if (srgbClr?.getAttribute('val')) {
+    return `#${srgbClr.getAttribute('val')}`;
+  }
+  const schemeClr = getTagFn(solidFill, 'schemeClr');
+  if (schemeClr) {
+    return resolveSchemeColor(schemeClr.getAttribute('val'), isBgDark, themeMap);
+  }
+  return null;
+};
+
+/** Detect if text is primarily Arabic / RTL */
+const isPrimarilyArabic = (text: string): boolean => {
+  const arabic = (text.match(/[\u0600-\u06FF]/g) || []).length;
+  const latin = (text.match(/[A-Za-z]/g) || []).length;
+  return arabic > latin;
 };
 
 export type PptxProgressCallback = (percent: number, message?: string) => void;
@@ -322,6 +399,22 @@ export const importPptxFromFile = async (
   const zip = await JSZip.loadAsync(file);
   report(8, 'تم تحميل الأرشيف، جاري تحليل العرض...');
   const domParser = new DOMParser();
+
+  // Load theme colors once for accurate schemeClr resolution
+  let themeColorMap: ThemeColorMap = {};
+  try {
+    const themeFile =
+      zip.file('ppt/theme/theme1.xml') ||
+      Object.keys(zip.files)
+        .filter((k) => k.startsWith('ppt/theme/') && k.endsWith('.xml'))
+        .map((k) => zip.file(k))[0];
+    if (themeFile) {
+      const themeXml = await themeFile.async('string');
+      themeColorMap = parseThemeColors(themeXml);
+    }
+  } catch (e) {
+    console.warn('Could not load PPTX theme colors:', e);
+  }
 
   // 1. Determine presentation dimensions (default to standard 16:9 widescreen in EMUs)
   let baseWidth = 1280;
@@ -671,7 +764,7 @@ export const importPptxFromFile = async (
                     if (srgbClr && srgbClr.getAttribute('val')) {
                       defaultTextColor = `#${srgbClr.getAttribute('val')}`;
                     } else if (schemeClr) {
-                      defaultTextColor = resolveSchemeColor(schemeClr.getAttribute('val'), isBgDark);
+                      defaultTextColor = resolveSchemeColor(schemeClr.getAttribute('val'), isBgDark, themeColorMap);
                     }
                   }
 
@@ -747,7 +840,7 @@ export const importPptxFromFile = async (
                       if (srgbClr && srgbClr.getAttribute('val')) {
                         pTextColor = `#${srgbClr.getAttribute('val')}`;
                       } else if (schemeClr) {
-                        pTextColor = resolveSchemeColor(schemeClr.getAttribute('val'), isBgDark);
+                        pTextColor = resolveSchemeColor(schemeClr.getAttribute('val'), isBgDark, themeColorMap);
                       }
                     }
                   }
@@ -755,6 +848,10 @@ export const importPptxFromFile = async (
               });
 
               if (!hasContent || !pText.trim()) return;
+
+              // Infer text direction from content when pptx rtl flag was absent
+              if (isPrimarilyArabic(pText)) textDirection = 'rtl';
+              else if (/[A-Za-z]/.test(pText) && !/[\u0600-\u06FF]/.test(pText)) textDirection = 'ltr';
 
               // Calculate bounding height of this paragraph using line-wrapping estimation
               let totalLines = 0;
@@ -1512,11 +1609,25 @@ export const importPptxFromFile = async (
   const cleanTitle = file.name.replace(/\.[^/.]+$/, "");
 
   report(100, 'اكتمل الاستيراد');
+
+  // Infer story language from extracted text (Arabic vs Latin)
+  let arabicChars = 0;
+  let latinChars = 0;
+  slides.forEach((s) => {
+    s.elements.forEach((el) => {
+      if (el.type === 'text') {
+        arabicChars += (el.text.match(/[\u0600-\u06FF]/g) || []).length;
+        latinChars += (el.text.match(/[A-Za-z]/g) || []).length;
+      }
+    });
+  });
+  const isArabicStory = arabicChars >= latinChars;
+
   return {
     id: `story-pptx-${Math.random().toString(36).substring(2, 9)}`,
     title: cleanTitle,
-    language: 'ar',
-    direction: 'rtl',
+    language: isArabicStory ? 'ar' : 'en',
+    direction: isArabicStory ? 'rtl' : 'ltr',
     slides: slides,
   };
 };

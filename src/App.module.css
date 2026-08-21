@@ -528,3 +528,59 @@
   border-radius: 999px;
   transition: width 0.25s ease-out;
 }
+
+/* Modern import progress */
+.importProgressBar {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.importProgressFill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #6366f1, #22d3ee);
+  transition: width 0.25s ease;
+}
+
+.qualityChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.04);
+  color: #d1d5db;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.qualityChip:hover {
+  border-color: rgba(99,102,241,0.4);
+}
+
+.qualityChipActive {
+  background: rgba(99,102,241,0.2);
+  border-color: rgba(99,102,241,0.55);
+  color: #c7d2fe;
+}
+
+.dropHint {
+  border: 1.5px dashed rgba(255,255,255,0.12);
+  border-radius: 14px;
+  padding: 20px;
+  text-align: center;
+  color: #9ca3af;
+  background: rgba(255,255,255,0.02);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.dropHint:hover {
+  border-color: rgba(99,102,241,0.4);
+  background: rgba(99,102,241,0.06);
+  color: #e5e7eb;
+}

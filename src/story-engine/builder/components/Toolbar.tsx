@@ -1,7 +1,7 @@
 import React from 'react';
 import { useStore } from 'zustand';
 import { useStoryStore } from '../../store/useStoryStore';
-import { Play, Plus, Copy, Trash2, Globe, Undo, Redo, FileJson } from 'lucide-react';
+import { Play, Plus, Copy, Trash2, Globe, Undo, Redo, FileJson, Layers } from 'lucide-react';
 import styles from '../StoryBuilder.module.css';
 
 interface ToolbarProps {
@@ -27,6 +27,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onPreviewToggle }) => {
   const canRedo = futureStates.length > 0;
 
   if (!story) return null;
+
+  const rtl = story.direction === 'rtl';
+  const t = (ar: string, en: string) => (rtl ? ar : en);
 
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setStorySettings({ title: e.target.value });
@@ -55,64 +58,62 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onPreviewToggle }) => {
   };
 
   return (
-    <header className={styles.toolbar}>
-      {/* Title & Lang Section */}
+    <header className={styles.toolbar} dir={story.direction}>
       <div className={styles.toolbarSection}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#a5b4fc' }}>
+          <Layers size={18} />
+        </div>
         <input
           type="text"
           value={story.title}
           onChange={handleTitleChange}
           className={styles.titleInput}
-          placeholder="عنوان القصة..."
+          placeholder={t('عنوان القصة...', 'Story title...')}
         />
         <button
           className={styles.btn}
           onClick={handleLanguageToggle}
-          title={story.language === 'ar' ? 'تحويل للإنجليزية' : 'Switch to Arabic'}
+          title={t('تبديل اللغة', 'Toggle language')}
         >
-          <Globe size={16} />
-          <span>{story.language === 'ar' ? 'العربية (RTL)' : 'English (LTR)'}</span>
+          <Globe size={15} />
+          <span>{story.language === 'ar' ? 'العربية' : 'English'}</span>
         </button>
       </div>
 
-      {/* Undo/Redo Controls */}
       <div className={styles.toolbarSection}>
         <button
           className={styles.btn}
           onClick={() => undo()}
           disabled={!canUndo}
-          title={story.direction === 'rtl' ? 'تراجع (Ctrl+Z)' : 'Undo (Ctrl+Z)'}
+          title={t('تراجع', 'Undo')}
         >
           <Undo size={14} />
-          <span>{story.direction === 'rtl' ? 'تراجع' : 'Undo'}</span>
         </button>
         <button
           className={styles.btn}
           onClick={() => redo()}
           disabled={!canRedo}
-          title={story.direction === 'rtl' ? 'إعادة (Ctrl+Y)' : 'Redo (Ctrl+Y)'}
+          title={t('إعادة', 'Redo')}
         >
           <Redo size={14} />
-          <span>{story.direction === 'rtl' ? 'إعادة' : 'Redo'}</span>
         </button>
 
         {selectedElementId && (
           <button
             className={`${styles.btn} ${styles.btnDanger}`}
             onClick={() => deleteElement(selectedElementId)}
-            title={story.direction === 'rtl' ? 'حذف العنصر المحدد (Delete)' : 'Delete Selected Element (Delete)'}
+            title={t('حذف العنصر', 'Delete element')}
           >
             <Trash2 size={14} />
-            <span>{story.direction === 'rtl' ? 'حذف العنصر' : 'Delete Element'}</span>
+            <span>{t('حذف', 'Delete')}</span>
           </button>
         )}
       </div>
 
-      {/* Slide Operations */}
       <div className={styles.toolbarSection}>
-        <button className={styles.btn} onClick={addSlide}>
-          <Plus size={16} />
-          <span>إضافة شريحة</span>
+        <button className={styles.btn} onClick={addSlide} title={t('شريحة جديدة', 'New slide')}>
+          <Plus size={15} />
+          <span>{t('شريحة', 'Slide')}</span>
         </button>
 
         {activeSlideId && (
@@ -120,38 +121,38 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onPreviewToggle }) => {
             <button
               className={styles.btn}
               onClick={() => duplicateSlide(activeSlideId)}
-              title="تكرار الشريحة الحالية"
+              title={t('تكرار الشريحة', 'Duplicate slide')}
             >
-              <Copy size={16} />
-              <span>تكرار</span>
+              <Copy size={14} />
             </button>
             <button
               className={`${styles.btn} ${styles.btnDanger}`}
               onClick={() => deleteSlide(activeSlideId)}
               disabled={isDeleteDisabled}
-              title="حذف الشريحة الحالية"
+              title={t('حذف الشريحة', 'Delete slide')}
             >
-              <Trash2 size={16} />
-              <span>حذف</span>
+              <Trash2 size={14} />
             </button>
           </>
         )}
       </div>
 
-      {/* Preview Section */}
       <div className={styles.toolbarSection}>
         <button
           className={styles.btn}
           onClick={handleExportJson}
-          title={story.direction === 'rtl' ? 'تصدير القصة كملف JSON' : 'Export Story as JSON file'}
+          title={t('تصدير JSON', 'Export JSON')}
         >
-          <FileJson size={16} />
-          <span>تصدير JSON</span>
+          <FileJson size={15} />
+          <span>JSON</span>
         </button>
 
-        <button className={`${styles.btn} ${styles.btnActive}`} onClick={onPreviewToggle}>
-          <Play size={16} />
-          <span>تشغيل المعاينة</span>
+        <button
+          className={`${styles.btn} ${styles.btnActive}`}
+          onClick={onPreviewToggle}
+        >
+          <Play size={15} />
+          <span>{t('معاينة', 'Preview')}</span>
         </button>
       </div>
     </header>
