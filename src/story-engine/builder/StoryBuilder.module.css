@@ -67,6 +67,7 @@
 
 /* Sidebar Area */
 .sidebar {
+  height: 100%;
   grid-area: sidebar;
   background-color: #202227;
   border-right: 1px solid #34373f;
@@ -240,6 +241,7 @@
 
 /* Inspector / Properties Panel */
 .inspector {
+  height: 100%; /* fill shell */
   grid-area: inspector;
   background-color: #202227;
   border-left: 1px solid #34373f;
@@ -547,9 +549,8 @@
 }
 
 .canvasArea {
-  background:
-    radial-gradient(ellipse at 50% 40%, rgba(99,102,241,0.06), transparent 55%),
-    #0c0d10 !important;
+  background: var(--se-canvas-bg, #050506) !important;
+  padding: 8px 8px 8px 168px !important; /* leave room for side chrome */
 }
 
 .canvasStageWrapper {
@@ -599,4 +600,572 @@
   border-radius: 16px !important;
   overflow: hidden !important;
   box-shadow: 0 25px 80px rgba(0,0,0,0.65) !important;
+}
+
+/* ========== Responsive shells (desktop = grid cells, mobile = drawers) ========== */
+.sidebarShell {
+  grid-area: sidebar;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.inspectorShell {
+  grid-area: inspector;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Sidebar / inspector fill their shells (CSS-module class names are hashed) */
+.sidebarShell > *,
+.inspectorShell > *:not(.drawerHeaderMobile) {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow: auto;
+  border-right: none !important;
+  border-left: none !important;
+  width: 100% !important;
+}
+
+.drawerHeaderMobile {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: #1c1e24;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.drawerCloseBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.05);
+  color: #e5e7eb;
+  cursor: pointer;
+}
+
+.mobileBar {
+  display: none;
+  grid-area: mobilebar;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #16181d;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.mobileBarBtn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+  color: #e5e7eb;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mobileBarBtnActive {
+  background: rgba(99, 102, 241, 0.22);
+  border-color: rgba(99, 102, 241, 0.5);
+  color: #c7d2fe;
+}
+
+.mobileBackdrop {
+  display: none;
+}
+
+/* Toolbar: allow wrap / hide long labels on small screens */
+.toolbar {
+  flex-wrap: wrap;
+  row-gap: 6px;
+  min-height: 56px;
+  height: auto;
+}
+
+.toolbarSection {
+  flex-wrap: wrap;
+}
+
+/* ---------- Tablet (≤ 1100px) ---------- */
+@media (max-width: 1100px) {
+  .builderContainer {
+    grid-template-columns: 220px 1fr 260px;
+  }
+
+  .titleInput {
+    width: 140px;
+  }
+
+  .btn span {
+    /* keep icons, shorten space */
+  }
+}
+
+/* ---------- Tablet portrait / small laptop (≤ 900px) ---------- */
+@media (max-width: 900px) {
+  .builderContainer {
+    grid-template-rows: auto auto 1fr;
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "toolbar"
+      "mobilebar"
+      "center";
+  }
+
+  .mobileBar {
+    display: flex;
+  }
+
+  .centerColumn {
+    grid-area: center;
+    min-height: 0;
+  }
+
+  /* Drawers */
+  .sidebarShell,
+  .inspectorShell {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    width: min(320px, 88vw);
+    z-index: 80;
+    background: #14161b;
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.55);
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    grid-area: unset;
+  }
+
+  .sidebarShell {
+    left: 0;
+    transform: translateX(-105%);
+  }
+
+  .inspectorShell {
+    right: 0;
+    transform: translateX(105%);
+  }
+
+  .sidebarShell.drawerOpen,
+  .inspectorShell.drawerOpen {
+    transform: translateX(0);
+  }
+
+  .drawerHeaderMobile {
+    display: flex;
+  }
+
+  .mobileBackdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    border: none;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(3px);
+    cursor: pointer;
+  }
+
+  /* Timeline more compact */
+  .centerColumn {
+    /* AnimationTimeline has its own max-height */
+  }
+
+  .playerModalContent {
+    width: 96vw !important;
+    max-width: 96vw !important;
+    height: 90vh !important;
+    border-radius: 12px !important;
+  }
+}
+
+/* ---------- Phone (≤ 600px) ---------- */
+@media (max-width: 600px) {
+  .builderContainer {
+    grid-template-rows: auto auto 1fr;
+  }
+
+  .toolbar {
+    padding: 8px 10px;
+    gap: 8px;
+  }
+
+  .toolbarSection {
+    gap: 6px;
+  }
+
+  .titleInput {
+    width: 110px;
+    font-size: 0.85rem;
+    padding: 6px 8px;
+  }
+
+  /* Hide text on some buttons — icons remain */
+  .toolbar .btn span {
+    display: none;
+  }
+
+  .toolbar .btnActive span {
+    display: inline;
+  }
+
+  .sidebarShell,
+  .inspectorShell {
+    width: min(100vw, 360px);
+  }
+
+  .canvasArea {
+    padding: 8px !important;
+  }
+
+  .canvasStageWrapper {
+    border-radius: 8px !important;
+  }
+
+  .mobileBarBtn {
+    padding: 12px 10px;
+    font-size: 0.8rem;
+  }
+
+  .playerModalOverlay {
+    padding: 0 !important;
+    align-items: stretch !important;
+  }
+
+  .playerModalContent {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: 100vh !important;
+    max-height: 100vh !important;
+    border-radius: 0 !important;
+  }
+}
+
+/* Prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .sidebarShell,
+  .inspectorShell,
+  .mobileBackdrop {
+    transition: none;
+  }
+}
+
+
+/* ========== Editorial monochromatic redesign (uses CSS variables from data-theme) ========== */
+.builderContainer {
+  background: var(--se-bg, #09090B) !important;
+  color: var(--se-text, #FAFAFA) !important;
+}
+
+.toolbar {
+  background: var(--se-bg-panel, #111113) !important;
+  border-bottom: 1px solid var(--se-border, #27272A) !important;
+  backdrop-filter: none !important;
+  min-height: var(--se-touch, 44px);
+}
+
+.titleInput {
+  background: var(--se-bg-muted, #18181B) !important;
+  border: 1px solid var(--se-border, #27272A) !important;
+  color: var(--se-text, #FAFAFA) !important;
+  border-radius: var(--se-radius-sm, 8px) !important;
+  box-shadow: none !important;
+}
+
+.titleInput:focus {
+  border-color: var(--se-text-muted, #A1A1AA) !important;
+  box-shadow: 0 0 0 3px var(--se-focus) !important;
+}
+
+.btn {
+  min-height: 40px;
+  padding: 8px 12px !important;
+  border-radius: var(--se-radius-sm, 8px) !important;
+  border: 1px solid var(--se-border, #27272A) !important;
+  background: var(--se-bg-muted, #18181B) !important;
+  color: var(--se-text, #FAFAFA) !important;
+  box-shadow: none !important;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--se-bg-hover, #1C1C1F) !important;
+  border-color: var(--se-text-faint, #71717A) !important;
+}
+
+.btnActive {
+  background: var(--se-primary, #FAFAFA) !important;
+  color: var(--se-primary-fg, #09090B) !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.btnActive:hover:not(:disabled) {
+  filter: brightness(0.92);
+  background: var(--se-primary, #FAFAFA) !important;
+}
+
+.btnDanger {
+  color: var(--se-danger) !important;
+}
+
+.btnDanger:hover:not(:disabled) {
+  background: var(--se-danger-bg) !important;
+  border-color: var(--se-danger) !important;
+}
+
+.sidebar,
+.inspector,
+.sidebarShell,
+.inspectorShell {
+  background: var(--se-bg-panel, #111113) !important;
+  border-color: var(--se-border, #27272A) !important;
+  color: var(--se-text, #FAFAFA) !important;
+}
+
+.sectionTitle {
+  color: var(--se-text-faint, #71717A) !important;
+}
+
+.canvasArea {
+  background: var(--se-canvas-bg, #050506) !important;
+}
+
+.canvasStageWrapper {
+  border-radius: var(--se-radius, 10px) !important;
+  box-shadow: var(--se-shadow) !important;
+  border: 1px solid var(--se-border, #27272A) !important;
+}
+
+.input {
+  background: var(--se-bg-muted) !important;
+  border: 1px solid var(--se-border) !important;
+  color: var(--se-text) !important;
+  border-radius: var(--se-radius-sm) !important;
+}
+
+.slideThumbnailCard {
+  border: 1px solid var(--se-border) !important;
+  background: var(--se-bg-muted) !important;
+  border-radius: var(--se-radius-sm) !important;
+}
+
+.slideThumbnailCardActive,
+.slideThumbnailCard:hover {
+  border-color: var(--se-text-muted) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.mobileBar {
+  background: var(--se-bg-panel) !important;
+  border-color: var(--se-border) !important;
+}
+
+.mobileBarBtn {
+  min-height: var(--se-touch);
+  border-color: var(--se-border) !important;
+  background: var(--se-bg-muted) !important;
+  color: var(--se-text) !important;
+}
+
+.mobileBarBtnActive {
+  background: var(--se-primary) !important;
+  color: var(--se-primary-fg) !important;
+  border-color: transparent !important;
+}
+
+.playerModalOverlay {
+  background: rgba(9, 9, 11, 0.72) !important;
+  backdrop-filter: blur(6px) !important;
+}
+
+.playerModalContent {
+  border: 1px solid var(--se-border) !important;
+  box-shadow: var(--se-shadow) !important;
+}
+
+/* Side canvas chrome — does not cover the stage */
+.canvasChrome {
+  position: absolute;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: stretch;
+  padding: 8px;
+  border-radius: 12px;
+  background: var(--se-bg-panel, #111113);
+  border: 1px solid var(--se-border, #27272A);
+  box-shadow: var(--se-shadow);
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.canvasChromeTop {
+  top: 12px;
+  left: 10px;
+  transform: none;
+  max-width: 148px;
+  width: 148px;
+}
+
+.canvasChromeBottom {
+  bottom: 12px;
+  left: 10px;
+  top: auto;
+  transform: none;
+  max-width: 148px;
+  width: 148px;
+}
+
+/* RTL: chrome on the right edge */
+[dir="rtl"] .canvasChromeTop,
+[dir="rtl"] .canvasChromeBottom,
+.builderContainer[dir="rtl"] .canvasChromeTop,
+.builderContainer[dir="rtl"] .canvasChromeBottom {
+  left: auto;
+  right: 10px;
+}
+
+.chromeSelect,
+.chromeBtn {
+  appearance: none;
+  min-height: 36px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--se-border);
+  background: var(--se-bg-muted);
+  color: var(--se-text);
+  font-size: 0.72rem;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.chromeBtn:hover {
+  background: var(--se-bg-hover);
+}
+
+.chromeBtnPrimary {
+  background: var(--se-primary);
+  color: var(--se-primary-fg);
+  border-color: transparent;
+}
+
+.chromeBadge {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--se-text-muted);
+  min-width: 40px;
+  text-align: center;
+}
+
+.zoomPopover {
+  position: absolute;
+  bottom: 0;
+  left: calc(100% + 8px);
+  transform: none;
+  width: 200px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--se-bg-panel);
+  border: 1px solid var(--se-border);
+  box-shadow: var(--se-shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.zoomPresets {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+
+.zoomPresets button {
+  min-height: 32px;
+  border-radius: 6px;
+  border: 1px solid var(--se-border);
+  background: var(--se-bg-muted);
+  color: var(--se-text);
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.zoomPresets button:hover {
+  background: var(--se-bg-hover);
+}
+
+
+/* scroll padding end — last item fully visible */
+.sidebarContent,
+.inspector,
+.sidebarShell > *,
+.inspectorShell > *:not(.drawerHeaderMobile) {
+  padding-bottom: 48px !important;
+  scroll-padding-bottom: 48px;
+}
+
+.slidesList {
+  padding-bottom: 32px !important;
+}
+
+.inspectorSection:last-child {
+  margin-bottom: 24px;
+}
+
+/* Mobile: chrome becomes horizontal bottom bar so stage is bigger */
+@media (max-width: 900px) {
+  .canvasArea {
+    padding: 8px 8px 72px 8px !important;
+  }
+
+  .canvasChrome {
+    flex-direction: row !important;
+    flex-wrap: wrap !important;
+    max-width: calc(100% - 16px) !important;
+    width: auto !important;
+    max-height: none !important;
+  }
+
+  .canvasChromeTop {
+    top: auto !important;
+    bottom: 8px !important;
+    left: 8px !important;
+    right: auto !important;
+  }
+
+  .canvasChromeBottom {
+    top: auto !important;
+    bottom: 8px !important;
+    left: auto !important;
+    right: 8px !important;
+  }
+
+  .zoomPopover {
+    left: 50% !important;
+    bottom: calc(100% + 8px) !important;
+    transform: translateX(-50%) !important;
+  }
 }

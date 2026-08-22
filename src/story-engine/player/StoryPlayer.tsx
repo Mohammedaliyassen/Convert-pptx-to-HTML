@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { Story, Slide, StoryElement, ClickAction } from '../core/types';
+import { STAGE_FORMATS } from '../core/types';
 import styles from './StoryPlayer.module.css';
 import { Play, Pause, ChevronLeft, ChevronRight, Maximize2, Minimize2, X } from 'lucide-react';
 import { useStoryStore } from '../store/useStoryStore';
@@ -43,8 +44,9 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
   // Short-lived audio objects created by interactive click actions
   const clickAudioRef = useRef<HTMLAudioElement[]>([]);
 
-  const baseWidth = 1200;
-  const baseHeight = 675;
+  const format = STAGE_FORMATS.find((f) => f.id === (story.stageFormat || '16:9')) || STAGE_FORMATS[0];
+  const baseWidth = format.width;
+  const baseHeight = format.height;
 
   const currentSlide = story.slides[currentSlideIndex];
 

@@ -24,6 +24,8 @@ export const PropertiesPanel: React.FC = () => {
     toggleFavoritePreset,
     deleteCustomPreset,
     setElementAnimation,
+    upsertClickTrigger,
+    removeClickTrigger,
   } = useStoryStore();
 
   const [isCustomCreatorOpen, setIsCustomCreatorOpen] = useState(false);
@@ -590,6 +592,152 @@ export const PropertiesPanel: React.FC = () => {
             )}
           </div>
 
+
+          {/* CLICK ACTIONS — easy interactive controls */}
+          <div className={styles.inspectorSection}>
+            <div className={styles.sectionTitle}>
+              {isRTL ? 'إجراءات النقر 🎯' : 'Click Actions 🎯'}
+            </div>
+            <p style={{ fontSize: '0.72rem', color: '#9ca3af', margin: '0 0 10px', lineHeight: 1.4 }}>
+              {isRTL
+                ? 'عند النقر على هذا العنصر: تشغيل صوت وإظهار/إخفاء عناصر أخرى (مثل إجابات الاختبار).'
+                : 'When this element is clicked: play a sound and show/hide other elements (e.g. quiz feedback).'}
+            </p>
+            {(() => {
+              const slide = story?.slides.find(s => s.id === activeSlideId);
+              const trigger = slide?.clickTriggers?.find(t => t.targetElementId === selectedElement.id);
+              const actions = trigger?.actions || [];
+              const soundAction = actions.find(a => a.type === 'playSound');
+              const showIds = actions.filter(a => a.type === 'show').map(a => a.type === 'show' ? a.targetId : '');
+              const otherElements = (slide?.elements || []).filter(e => e.id !== selectedElement.id);
+
+              const saveActions = (nextActions: typeof actions) => {
+                if (nextActions.length === 0) {
+                  removeClickTrigger(selectedElement.id);
+                } else {
+                  upsertClickTrigger({
+                    targetElementId: selectedElement.id,
+                    actions: nextActions,
+                  });
+                }
+              };
+
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {/* Click sound */}
+                  <div>
+                    <label className={styles.controlGroupLabel}>
+                      {isRTL ? 'صوت عند النقر' : 'Sound on click'}
+                    </label>
+                    <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                      <label className={styles.btn} style={{ flex: 1, cursor: 'pointer', justifyContent: 'center' }}>
+                        <span>{soundAction ? (isRTL ? '✓ صوت جاهز' : '✓ Sound set') : (isRTL ? '+ اختر صوت' : '+ Choose sound')}</span>
+                        <input
+                          type="file"
+                          accept="audio/*"
+                          hidden
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                              const rest = actions.filter(a => a.type !== 'playSound');
+                              saveActions([...rest, { type: 'playSound', src: reader.result as string }]);
+                            };
+                            reader.readAsDataURL(file);
+                          }}
+                        />
+                      </label>
+                      {soundAction && (
+                        <button
+                          className={`${styles.btn} ${styles.btnDanger}`}
+                          style={{ padding: '8px 10px' }}
+                          onClick={() => saveActions(actions.filter(a => a.type !== 'playSound'))}
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Show elements on click */}
+                  <div>
+                    <label className={styles.controlGroupLabel}>
+                      {isRTL ? 'أظهر عند النقر' : 'Show on click'}
+                    </label>
+                    <select
+                      className={styles.input}
+                      style={{ width: '100%', marginTop: 4 }}
+                      value=""
+                      onChange={(e) => {
+                        const id = e.target.value;
+                        if (!id || showIds.includes(id)) return;
+                        saveActions([...actions, { type: 'show', targetId: id }]);
+                        // Feedback elements start hidden until the click reveals them
+                        updateElement(id, { hidden: true });
+                      }}
+                    >
+                      <option value="">{isRTL ? '— اختر عنصراً —' : '— Pick element —'}</option>
+                      {otherElements.map(el => {
+                        const label = el.type === 'text'
+                          ? (el.text || '').slice(0, 40) || 'Text'
+                          : (isRTL ? 'صورة' : 'Image');
+                        return (
+                          <option key={el.id} value={el.id} disabled={showIds.includes(el.id)}>
+                            {label}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    {showIds.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+                        {showIds.map(id => {
+                          const el = otherElements.find(e => e.id === id);
+                          const label = el?.type === 'text'
+                            ? (el.text || '').slice(0, 18) || id.slice(0, 6)
+                            : (isRTL ? 'صورة' : 'Img');
+                          return (
+                            <span
+                              key={id}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                background: 'rgba(99,102,241,0.2)',
+                                border: '1px solid rgba(99,102,241,0.35)',
+                                borderRadius: 999,
+                                padding: '2px 8px',
+                                fontSize: '0.7rem',
+                              }}
+                            >
+                              {label}
+                              <button
+                                style={{ background: 'none', border: 'none', color: '#fca5a5', cursor: 'pointer', padding: 0, lineHeight: 1 }}
+                                onClick={() => saveActions(actions.filter(a => !(a.type === 'show' && a.targetId === id)))}
+                              >
+                                ×
+                              </button>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {trigger && (
+                    <button
+                      className={`${styles.btn} ${styles.btnDanger}`}
+                      style={{ width: '100%' }}
+                      onClick={() => removeClickTrigger(selectedElement.id)}
+                    >
+                      {isRTL ? 'إزالة كل إجراءات النقر' : 'Clear all click actions'}
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+
           <div className={styles.inspectorSection} style={{ marginTop: 'auto' }}>
             <button
               className={`${styles.btn} ${styles.btnDanger}`}
@@ -622,6 +770,8 @@ export const PropertiesPanel: React.FC = () => {
                   <li>استخدم المقابض الزرقاء للتحجيم والتدوير.</li>
                   <li>اضغط Backspace أو Delete لحذف العنصر المحدد.</li>
                   <li>عدل خلفية الشريحة من تبويب "الخلفية" باليسار.</li>
+                  <li>للحركة: اختر عنصراً ← أضف حركة ← رتّبها من شريط الحركات بالأسفل.</li>
+                  <li>للتفاعل: اختر زر/إجابة ← إجراءات النقر ← صوت + إظهار عنصر.</li>
                 </>
               ) : (
                 <>
@@ -629,6 +779,8 @@ export const PropertiesPanel: React.FC = () => {
                   <li>Use the handles to scale and rotate elements.</li>
                   <li>Press Backspace or Delete to remove elements.</li>
                   <li>Modify slide backgrounds via the left sidebar tab.</li>
+                  <li>Animation: select element → add animation → reorder in the bottom timeline.</li>
+                  <li>Interaction: select answer → Click Actions → sound + show element.</li>
                 </>
               )}
             </ul>

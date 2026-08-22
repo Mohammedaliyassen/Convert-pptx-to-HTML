@@ -88,5 +88,6 @@ export const StorySchema = z.object({
   title: z.string(),
   language: z.enum(['ar', 'en']).default('en'),
   direction: z.enum(['ltr', 'rtl']).default('ltr'),
+  stageFormat: z.enum(['16:9', '9:16', '4:3', '1:1', '21:9']).optional(),
   slides: z.array(SlideSchema).default([]),
 });

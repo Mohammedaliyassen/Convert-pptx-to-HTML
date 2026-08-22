@@ -190,3 +190,82 @@
   background: linear-gradient(to right, #00f2fe, #4facfe);
   transition: width 0.3s ease-out;
 }
+
+@media (max-width: 768px) {
+  .playerContainer {
+    border-radius: 0;
+    min-height: 100%;
+  }
+
+  .topControlBar {
+    padding: 8px 10px;
+    gap: 8px;
+  }
+
+  .storyTitle {
+    font-size: 0.85rem;
+    max-width: 45%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .bottomControlBar {
+    padding: 10px 12px;
+    gap: 12px;
+  }
+
+  .navButton {
+    width: 44px;
+    height: 44px;
+  }
+
+  .slideCounter {
+    font-size: 0.85rem;
+  }
+
+  .stageViewport {
+    padding: 4px;
+  }
+}
+
+@media (max-width: 480px) {
+  .controlButton span {
+    display: none;
+  }
+
+  .storyTitle {
+    max-width: 40%;
+  }
+}
+
+
+/* Monochromatic player chrome */
+.playerContainer {
+  background: #09090B !important;
+  border-radius: 12px !important;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.04), 0 12px 40px rgba(0,0,0,0.5) !important;
+  border: 1px solid #27272A;
+}
+
+.topControlBar,
+.bottomControlBar {
+  background: rgba(9, 9, 11, 0.85) !important;
+  border-color: #27272A !important;
+  backdrop-filter: blur(8px);
+}
+
+.controlButton,
+.navButton {
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 10px !important;
+  border: 1px solid #27272A !important;
+  background: #18181B !important;
+  color: #FAFAFA !important;
+}
+
+.controlButton:hover,
+.navButton:hover {
+  background: #27272A !important;
+}

@@ -88,11 +88,30 @@ export interface Slide {
   clickTriggers?: ClickTrigger[];
 }
 
+export type StageFormatId = '16:9' | '9:16' | '4:3' | '1:1' | '21:9';
+
+export interface StageFormat {
+  id: StageFormatId;
+  label: string;
+  width: number;
+  height: number;
+}
+
+export const STAGE_FORMATS: StageFormat[] = [
+  { id: '16:9', label: '16:9 Widescreen', width: 1200, height: 675 },
+  { id: '9:16', label: '9:16 Story / Reels', width: 675, height: 1200 },
+  { id: '4:3', label: '4:3 Classic', width: 1000, height: 750 },
+  { id: '1:1', label: '1:1 Square', width: 800, height: 800 },
+  { id: '21:9', label: '21:9 Cinematic', width: 1400, height: 600 },
+];
+
 export interface Story {
   id: string;
   title: string;
   language: 'ar' | 'en';
   direction: 'ltr' | 'rtl';
+  /** Canvas / player stage aspect ratio */
+  stageFormat?: StageFormatId;
   slides: Slide[];
 }
 

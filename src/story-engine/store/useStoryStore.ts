@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { temporal } from 'zundo';
-import type { Story, Slide, StoryElement, SlideBackground, NewStoryElement, AnimationPreset } from '../core/types';
+import type { Story, Slide, StoryElement, SlideBackground, NewStoryElement, AnimationPreset, ClickTrigger, ClickAction, StageFormatId } from '../core/types';
 
 // Helper to generate safe IDs
 const generateId = () => Math.random().toString(36).substring(2, 9);
@@ -10,6 +10,10 @@ export interface StoryState {
   activeSlideId: string | null;
   selectedElementId: string | null;
   zoom: number;
+  /** null = auto-fit to container */
+  zoomMode: 'auto' | 'manual';
+  themeMode: 'dark' | 'light';
+
   
   // Actions
   loadStory: (story: Story) => void;
@@ -26,6 +30,10 @@ export interface StoryState {
   updateElement: (elementId: string, updates: Partial<StoryElement>) => void;
   deleteElement: (elementId: string) => void;
   setZoom: (zoom: number) => void;
+  setZoomMode: (mode: 'auto' | 'manual') => void;
+  setThemeMode: (mode: 'dark' | 'light') => void;
+  setStageFormat: (formatId: StageFormatId) => void;
+
   bringToFront: (elementId: string) => void;
   sendToBack: (elementId: string) => void;
   bringForward: (elementId: string) => void;
@@ -42,6 +50,12 @@ export interface StoryState {
   deleteCustomPreset: (presetId: string) => void;
   toggleFavoritePreset: (presetId: string) => void;
   setElementAnimation: (elementId: string, animation: StoryElement['animation']) => void;
+  /** Replace all click triggers on the active slide */
+  setSlideClickTriggers: (triggers: ClickTrigger[]) => void;
+  /** Add or merge a click trigger for an element on the active slide */
+  upsertClickTrigger: (trigger: ClickTrigger) => void;
+  /** Remove click trigger for an element */
+  removeClickTrigger: (elementId: string) => void;
 }
 
 export const useStoryStore = create<StoryState>()(
@@ -520,8 +534,57 @@ export const useStoryStore = create<StoryState>()(
     });
   },
 
+
+  setSlideClickTriggers: (triggers) => {
+    const { story, activeSlideId } = get();
+    if (!story || !activeSlideId) return;
+    const updatedSlides = story.slides.map((slide) => {
+      if (slide.id !== activeSlideId) return slide;
+      return { ...slide, clickTriggers: triggers.length ? triggers : undefined };
+    });
+    set({ story: { ...story, slides: updatedSlides } });
+  },
+
+  upsertClickTrigger: (trigger) => {
+    const { story, activeSlideId } = get();
+    if (!story || !activeSlideId) return;
+    const updatedSlides = story.slides.map((slide) => {
+      if (slide.id !== activeSlideId) return slide;
+      const existing = slide.clickTriggers || [];
+      const filtered = existing.filter((t) => t.targetElementId !== trigger.targetElementId);
+      return { ...slide, clickTriggers: [...filtered, trigger] };
+    });
+    set({ story: { ...story, slides: updatedSlides } });
+  },
+
+  removeClickTrigger: (elementId) => {
+    const { story, activeSlideId } = get();
+    if (!story || !activeSlideId) return;
+    const updatedSlides = story.slides.map((slide) => {
+      if (slide.id !== activeSlideId) return slide;
+      const next = (slide.clickTriggers || []).filter((t) => t.targetElementId !== elementId);
+      return { ...slide, clickTriggers: next.length ? next : undefined };
+    });
+    set({ story: { ...story, slides: updatedSlides } });
+  },
+
   setZoom: (zoom) => {
-    set({ zoom });
+    set({ zoom, zoomMode: 'manual' });
+  },
+
+  setZoomMode: (mode) => {
+    set({ zoomMode: mode });
+  },
+
+  setThemeMode: (mode) => {
+    try { localStorage.setItem('story_engine_theme', mode); } catch { /* ignore */ }
+    set({ themeMode: mode });
+  },
+
+  setStageFormat: (formatId) => {
+    const { story } = get();
+    if (!story) return;
+    set({ story: { ...story, stageFormat: formatId } });
   },
     }),
     {

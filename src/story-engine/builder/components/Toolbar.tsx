@@ -1,12 +1,20 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { useStore } from 'zustand';
 import { useStoryStore } from '../../store/useStoryStore';
-import { Play, Plus, Copy, Trash2, Globe, Undo, Redo, FileJson, Layers } from 'lucide-react';
+import { Play, Plus, Copy, Trash2, Globe, Undo, Redo, FileJson, Layers, Upload, Sun, Moon } from 'lucide-react';
 import styles from '../StoryBuilder.module.css';
+import type { Story } from '../../core/types';
 
 interface ToolbarProps {
   onPreviewToggle: () => void;
 }
+
+/** Basic shape check for a Story JSON export */
+const isValidStory = (data: unknown): data is Story => {
+  if (!data || typeof data !== 'object') return false;
+  const s = data as Record<string, unknown>;
+  return Array.isArray(s.slides);
+};
 
 export const Toolbar: React.FC<ToolbarProps> = ({ onPreviewToggle }) => {
   const {
@@ -18,7 +26,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onPreviewToggle }) => {
     deleteSlide,
     selectedElementId,
     deleteElement,
+    loadStory,
+    themeMode,
+    setThemeMode,
   } = useStoryStore();
+
+  const jsonInputRef = useRef<HTMLInputElement>(null);
 
   const { undo, redo } = useStoryStore.temporal.getState();
   const pastStates = useStore(useStoryStore.temporal, (state) => state.pastStates);
@@ -55,6 +68,45 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onPreviewToggle }) => {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+  };
+
+  const handleImportJson = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // allow re-selecting the same file later
+    e.target.value = '';
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const text = String(reader.result || '');
+        const parsed = JSON.parse(text);
+        if (!isValidStory(parsed)) {
+          throw new Error('Invalid story shape');
+        }
+        // Ensure required fields have safe defaults
+        const normalized: Story = {
+          id: typeof parsed.id === 'string' ? parsed.id : Math.random().toString(36).slice(2, 9),
+          title: typeof parsed.title === 'string' ? parsed.title : file.name.replace(/\.json$/i, ''),
+          language: parsed.language === 'en' ? 'en' : 'ar',
+          direction: parsed.direction === 'ltr' ? 'ltr' : 'rtl',
+          slides: parsed.slides,
+        };
+        loadStory(normalized);
+      } catch (err) {
+        console.error('JSON import failed:', err);
+        alert(
+          t(
+            'تعذر قراءة ملف JSON. تأكد أنه مصدَّر من محرر القصص.',
+            'Could not read JSON file. Make sure it was exported from the story editor.'
+          )
+        );
+      }
+    };
+    reader.onerror = () => {
+      alert(t('فشل قراءة الملف.', 'Failed to read the file.'));
+    };
+    reader.readAsText(file);
   };
 
   return (
@@ -138,13 +190,37 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onPreviewToggle }) => {
       </div>
 
       <div className={styles.toolbarSection}>
+        <input
+          ref={jsonInputRef}
+          type="file"
+          accept=".json,application/json"
+          hidden
+          onChange={handleImportJson}
+        />
+        <button
+          className={styles.btn}
+          onClick={() => jsonInputRef.current?.click()}
+          title={t('استيراد قصة JSON', 'Import story JSON')}
+        >
+          <Upload size={15} />
+          <span>{t('استيراد', 'Import')}</span>
+        </button>
+
         <button
           className={styles.btn}
           onClick={handleExportJson}
           title={t('تصدير JSON', 'Export JSON')}
         >
           <FileJson size={15} />
-          <span>JSON</span>
+          <span>{t('تصدير', 'Export')}</span>
+        </button>
+
+        <button
+          className={styles.btn}
+          onClick={() => setThemeMode(themeMode === 'dark' ? 'light' : 'dark')}
+          title={t('الوضع الفاتح/الداكن', 'Light / dark mode')}
+        >
+          {themeMode === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
         </button>
 
         <button

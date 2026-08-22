@@ -134,9 +134,10 @@ function App() {
     }
   };
 
-  // Standalone JSON Upload Handler
+  // JSON story upload — loads into builder (and optional standalone player)
   const handleJsonUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
 
     const reader = new FileReader();
@@ -146,10 +147,25 @@ function App() {
         if (!parsedStory.slides || !Array.isArray(parsedStory.slides)) {
           throw new Error('ملف JSON غير متوافق مع بنية القصص.');
         }
-        setStandaloneStory(parsedStory);
+        const normalized = {
+          id: typeof parsedStory.id === 'string' ? parsedStory.id : Math.random().toString(36).slice(2, 9),
+          title:
+            typeof parsedStory.title === 'string'
+              ? parsedStory.title
+              : file.name.replace(/\.json$/i, ''),
+          language: parsedStory.language === 'en' ? 'en' : 'ar',
+          direction: parsedStory.direction === 'ltr' ? 'ltr' : 'rtl',
+          slides: parsedStory.slides,
+        };
+        // Open in the editor
+        loadStory(normalized as any);
+        // Also keep available for standalone player mode
+        setStandaloneStory(normalized as any);
+        setAppMode('builder');
+        setIsConsoleOpen(false);
       } catch (err) {
         console.error('JSON Parse error:', err);
-        alert('حدث خطأ أثناء قراءة الملف الصادق. يرجى التأكد من اختيار ملف JSON صالح ومصدّر من محرر القصص.');
+        alert('حدث خطأ أثناء قراءة الملف. يرجى التأكد من اختيار ملف JSON صالح ومصدّر من محرر القصص.');
       }
     };
     reader.readAsText(file);
@@ -286,6 +302,18 @@ function App() {
                       className={styles.fileInputHidden}
                     />
                   </label>
+                  {/* JSON Story Import */}
+                  <label className={styles.fileBtn} style={{ marginTop: 10 }}>
+                    <Upload size={16} />
+                    <span style={{ color: '#34d399' }}>استيراد قصة JSON...</span>
+                    <input
+                      type="file"
+                      accept=".json,application/json"
+                      onChange={handleJsonUpload}
+                      style={{ display: 'none' }}
+                    />
+                  </label>
+
 
                   {/* File Image Upload */}
                   <label className={styles.fileUploadLabel}>

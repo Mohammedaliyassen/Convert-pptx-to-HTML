@@ -131,24 +131,122 @@ const resolveSchemeColor = (
   }
 };
 
-/** Extract solid fill color from a shape/run style node */
+/** Clamp 0–255 */
+const clampByte = (n: number) => Math.max(0, Math.min(255, Math.round(n)));
+
+const hexToRgb = (hex: string): { r: number; g: number; b: number } | null => {
+  const h = hex.replace('#', '');
+  if (h.length < 6) return null;
+  return {
+    r: parseInt(h.slice(0, 2), 16),
+    g: parseInt(h.slice(2, 4), 16),
+    b: parseInt(h.slice(4, 6), 16),
+  };
+};
+
+const rgbToHex = (r: number, g: number, b: number) =>
+  `#${clampByte(r).toString(16).padStart(2, '0')}${clampByte(g).toString(16).padStart(2, '0')}${clampByte(b).toString(16).padStart(2, '0')}`;
+
+/**
+ * Apply OOXML color transforms (lumMod, lumOff, tint, shade, alpha) on a base hex.
+ * Values in OOXML are typically 0–100000 (percentage * 1000).
+ */
+const applyColorTransforms = (baseHex: string, colorNode: Element): string => {
+  const rgb = hexToRgb(baseHex);
+  if (!rgb) return baseHex;
+  let { r, g, b } = rgb;
+
+  const readPct = (tag: string): number | null => {
+    const el =
+      colorNode.getElementsByTagNameNS('*', tag)[0] ||
+      colorNode.getElementsByTagName(`a:${tag}`)[0];
+    if (!el) return null;
+    const v = parseInt(el.getAttribute('val') || '', 10);
+    if (isNaN(v)) return null;
+    return v / 100000; // 0–1
+  };
+
+  const lumMod = readPct('lumMod');
+  const lumOff = readPct('lumOff');
+  const tint = readPct('tint');
+  const shade = readPct('shade');
+
+  // Tint: mix toward white
+  if (tint !== null) {
+    r = r + (255 - r) * tint;
+    g = g + (255 - g) * tint;
+    b = b + (255 - b) * tint;
+  }
+  // Shade: mix toward black
+  if (shade !== null) {
+    r = r * shade;
+    g = g * shade;
+    b = b * shade;
+  }
+  // Luminance modulation / offset (approximate HSL lightness adjust)
+  if (lumMod !== null || lumOff !== null) {
+    const mod = lumMod ?? 1;
+    const off = lumOff ?? 0;
+    r = r * mod + 255 * off;
+    g = g * mod + 255 * off;
+    b = b * mod + 255 * off;
+  }
+
+  return rgbToHex(r, g, b);
+};
+
+/** Read alpha 0–1 from a color node (default 1 = opaque) */
+const readColorAlpha = (colorNode: Element): number => {
+  const el =
+    colorNode.getElementsByTagNameNS('*', 'alpha')[0] ||
+    colorNode.getElementsByTagName('a:alpha')[0];
+  if (!el) return 1;
+  const v = parseInt(el.getAttribute('val') || '', 10);
+  if (isNaN(v)) return 1;
+  return Math.max(0, Math.min(1, v / 100000));
+};
+
+/**
+ * Resolve any solidFill / srgbClr / schemeClr / sysClr under a parent node
+ * with full theme + transform support.
+ */
 const extractSolidColor = (
   parent: Element | null,
   isBgDark: boolean,
   themeMap?: ThemeColorMap,
   getTagFn?: (p: Element, t: string) => Element | null
 ): string | null => {
-  if (!parent || !getTagFn) return null;
-  const solidFill = getTagFn(parent, 'solidFill');
+  if (!parent) return null;
+  const find = getTagFn || ((p: Element, t: string) =>
+    p.getElementsByTagNameNS('*', t)[0] || p.getElementsByTagName(`a:${t}`)[0] || null);
+
+  const solidFill = find(parent, 'solidFill') || (parent.localName === 'solidFill' ? parent : null);
   if (!solidFill) return null;
-  const srgbClr = getTagFn(solidFill, 'srgbClr');
+
+  // Direct sRGB
+  const srgbClr = find(solidFill, 'srgbClr');
   if (srgbClr?.getAttribute('val')) {
-    return `#${srgbClr.getAttribute('val')}`;
+    const base = `#${srgbClr.getAttribute('val')!.replace(/^#/, '')}`;
+    return applyColorTransforms(base, srgbClr);
   }
-  const schemeClr = getTagFn(solidFill, 'schemeClr');
+
+  // Scheme color from theme
+  const schemeClr = find(solidFill, 'schemeClr');
   if (schemeClr) {
-    return resolveSchemeColor(schemeClr.getAttribute('val'), isBgDark, themeMap);
+    const base = resolveSchemeColor(schemeClr.getAttribute('val'), isBgDark, themeMap);
+    return applyColorTransforms(base, schemeClr);
   }
+
+  // System color
+  const sysClr = find(solidFill, 'sysClr');
+  if (sysClr) {
+    const last = sysClr.getAttribute('lastClr');
+    if (last) {
+      const base = `#${last.replace(/^#/, '')}`;
+      return applyColorTransforms(base, sysClr);
+    }
+  }
+
   return null;
 };
 
@@ -529,11 +627,23 @@ export const importPptxFromFile = async (
     try {
       const bgPr = getTag(sld, 'bgPr') || getTag(sld, 'bg');
       if (bgPr) {
-        const solidFill = getTag(bgPr, 'solidFill');
-        if (solidFill) {
-          const srgbClr = getTag(solidFill, 'srgbClr');
-          if (srgbClr && srgbClr.getAttribute('val')) {
-            slideBackgroundColor = `#${srgbClr.getAttribute('val')}`;
+        const bgColor = extractSolidColor(bgPr, false, themeColorMap, getTag);
+        if (bgColor) slideBackgroundColor = bgColor;
+        // Also try nested bgPr → bgRef scheme
+        if (!bgColor) {
+          const bgRef = getTag(bgPr, 'bgRef') || getTag(sld, 'bgRef');
+          if (bgRef) {
+            const idx = bgRef.getAttribute('idx');
+            const scheme = getTag(bgRef, 'schemeClr');
+            if (scheme) {
+              slideBackgroundColor = resolveSchemeColor(
+                scheme.getAttribute('val'),
+                false,
+                themeColorMap
+              );
+            } else if (idx === '0' || idx === '1000') {
+              slideBackgroundColor = resolveSchemeColor('bg1', false, themeColorMap);
+            }
           }
         }
       }
@@ -757,16 +867,8 @@ export const importPptxFromFile = async (
                     if (!isNaN(ptSize)) defaultFontSize = Math.round(ptSize * 1.33);
                   }
 
-                  const solidFill = getTag(defRPr, 'solidFill');
-                  if (solidFill) {
-                    const srgbClr = getTag(solidFill, 'srgbClr');
-                    const schemeClr = getTag(solidFill, 'schemeClr');
-                    if (srgbClr && srgbClr.getAttribute('val')) {
-                      defaultTextColor = `#${srgbClr.getAttribute('val')}`;
-                    } else if (schemeClr) {
-                      defaultTextColor = resolveSchemeColor(schemeClr.getAttribute('val'), isBgDark, themeColorMap);
-                    }
-                  }
+                  const defColor = extractSolidColor(defRPr, isBgDark, themeColorMap, getTag);
+                  if (defColor) defaultTextColor = defColor;
 
                   // Check default fonts on paragraph
                   const latinFont = getTag(defRPr, 'latin');
@@ -833,16 +935,8 @@ export const importPptxFromFile = async (
                       pFontFamily = typeface;
                     }
 
-                    const solidFill = getTag(rPr, 'solidFill');
-                    if (solidFill) {
-                      const srgbClr = getTag(solidFill, 'srgbClr');
-                      const schemeClr = getTag(solidFill, 'schemeClr');
-                      if (srgbClr && srgbClr.getAttribute('val')) {
-                        pTextColor = `#${srgbClr.getAttribute('val')}`;
-                      } else if (schemeClr) {
-                        pTextColor = resolveSchemeColor(schemeClr.getAttribute('val'), isBgDark, themeColorMap);
-                      }
-                    }
+                    const runColor = extractSolidColor(rPr, isBgDark, themeColorMap, getTag);
+                    if (runColor) pTextColor = runColor;
                   }
                 }
               });

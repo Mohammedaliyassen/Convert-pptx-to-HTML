@@ -2,7 +2,9 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Stage, Layer, Text as KonvaText, Image as KonvaImage, Transformer } from 'react-konva';
 import { useStoryStore } from '../../store/useStoryStore';
 import type { TextElement, ImageElement } from '../../core/types';
+import { STAGE_FORMATS } from '../../core/types';
 import styles from '../StoryBuilder.module.css';
+import { Minus, Plus, Maximize2 } from 'lucide-react';
 import { applyAnimation, BUILTIN_PRESETS } from '../../utils/animationEngine';
 import { loadGoogleFont } from '../../utils/fontLoader';
 
@@ -167,45 +169,51 @@ export const Canvas: React.FC = () => {
     setSelectedElementId,
     updateElement,
     deleteElement,
+    zoom,
+    zoomMode,
+    setZoom,
+    setZoomMode,
+    setStageFormat,
   } = useStoryStore();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<any>(null);
   const transformerRef = useRef<any>(null);
-  const [scale, setScale] = useState(1);
+  const [fitScale, setFitScale] = useState(1);
+  const [zoomOpen, setZoomOpen] = useState(false);
 
-  const baseWidth = 1200;
-  const baseHeight = 675;
+  const format = STAGE_FORMATS.find((f) => f.id === (story?.stageFormat || '16:9')) || STAGE_FORMATS[0];
+  const baseWidth = format.width;
+  const baseHeight = format.height;
+  const scale = zoomMode === 'manual' ? zoom : fitScale;
 
   const currentSlide = story?.slides.find((s) => s.id === activeSlideId);
 
-  // Resize handler for scaling the Konva stage responsively
+  // Unclipped auto-fit via ResizeObserver + safe padding
   const resizeCanvas = useCallback(() => {
     if (!containerRef.current) return;
     const containerWidth = containerRef.current.clientWidth;
     const containerHeight = containerRef.current.clientHeight;
-
-    // Buffer margins
-    const availableWidth = containerWidth - 40;
-    const availableHeight = containerHeight - 40;
-
+    // Side chrome ~156px; keep modest vertical padding so stage is larger
+    const sideChrome = 156;
+    const padY = Math.max(12, Math.min(containerHeight * 0.04, 28));
+    const padX = Math.max(12, sideChrome);
+    const availableWidth = Math.max(120, containerWidth - padX - 12);
+    const availableHeight = Math.max(120, containerHeight - padY * 2);
     const scaleW = availableWidth / baseWidth;
     const scaleH = availableHeight / baseHeight;
-    const newScale = Math.min(scaleW, scaleH, 1); // Clamp max scale to 1 for crisp rendering
-
-    setScale(newScale);
-  }, []);
+    const newScale = Math.min(scaleW, scaleH);
+    setFitScale(Math.max(0.1, Math.min(newScale, 2)));
+  }, [baseWidth, baseHeight]);
 
   useEffect(() => {
     resizeCanvas();
-    window.addEventListener('resize', resizeCanvas);
-    const timer = setTimeout(resizeCanvas, 100);
-
-    return () => {
-      window.removeEventListener('resize', resizeCanvas);
-      clearTimeout(timer);
-    };
-  }, [resizeCanvas, activeSlideId]);
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => resizeCanvas());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [resizeCanvas, activeSlideId, story?.stageFormat]);
 
   // Handle animation preview triggers inside the editor canvas
   useEffect(() => {
@@ -349,6 +357,83 @@ export const Canvas: React.FC = () => {
         }
       }
     }} tabIndex={0}>
+      {/* Aspect ratio + zoom chrome */}
+      <div className={`${styles.canvasChrome} ${styles.canvasChromeTop}`}>
+        <select
+          className={styles.chromeSelect}
+          value={story?.stageFormat || '16:9'}
+          onChange={(e) => setStageFormat(e.target.value as any)}
+          title="Aspect ratio"
+        >
+          {STAGE_FORMATS.map((f) => (
+            <option key={f.id} value={f.id}>
+              {f.label} ({f.width}×{f.height})
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className={`${styles.canvasChrome} ${styles.canvasChromeBottom}`}>
+        <button
+          type="button"
+          className={styles.chromeBtn}
+          onClick={() => {
+            setZoomMode('auto');
+            resizeCanvas();
+          }}
+          title="Auto-fit"
+        >
+          <Maximize2 size={14} /> Auto
+        </button>
+        <button
+          type="button"
+          className={styles.chromeBtn}
+          onClick={() => setZoom(Math.max(0.25, Math.round((scale - 0.1) * 100) / 100))}
+        >
+          <Minus size={14} />
+        </button>
+        <button
+          type="button"
+          className={styles.chromeBtn}
+          onClick={() => setZoomOpen((v) => !v)}
+        >
+          <span className={styles.chromeBadge}>{Math.round(scale * 100)}%</span>
+        </button>
+        <button
+          type="button"
+          className={styles.chromeBtn}
+          onClick={() => setZoom(Math.min(2, Math.round((scale + 0.1) * 100) / 100))}
+        >
+          <Plus size={14} />
+        </button>
+        {zoomOpen && (
+          <div className={styles.zoomPopover}>
+            <div className={styles.zoomPresets}>
+              {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((z) => (
+                <button key={z} type="button" onClick={() => { setZoom(z); setZoomOpen(false); }}>
+                  {Math.round(z * 100)}%
+                </button>
+              ))}
+            </div>
+            <input
+              type="range"
+              min={25}
+              max={200}
+              step={5}
+              value={Math.round(scale * 100)}
+              onChange={(e) => setZoom(parseInt(e.target.value, 10) / 100)}
+            />
+            <button
+              type="button"
+              className={`${styles.chromeBtn} ${styles.chromeBtnPrimary}`}
+              onClick={() => { setZoomMode('auto'); setZoomOpen(false); }}
+            >
+              Auto-fit
+            </button>
+          </div>
+        )}
+      </div>
+
       <div
         className={`${styles.canvasStageWrapper} ${!selectedElementId ? styles.canvasStageWrapperSelected : ''}`}
         style={{
@@ -359,8 +444,8 @@ export const Canvas: React.FC = () => {
       >
         <Stage
           ref={stageRef}
-          width={baseWidth * scale}
-          height={baseHeight * scale}
+          width={baseWidth}
+          height={baseHeight}
           scaleX={scale}
           scaleY={scale}
           onMouseDown={handleStageMouseDown}
