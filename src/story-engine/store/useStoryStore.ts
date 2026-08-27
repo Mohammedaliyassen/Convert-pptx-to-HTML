@@ -9,7 +9,7 @@ export interface StoryState {
   story: Story | null;
   activeSlideId: string | null;
   selectedElementId: string | null;
-  zoom: number;
+  zoom: number; 
   /** null = auto-fit to container */
   zoomMode?: 'auto' | 'manual';
   themeMode?: 'dark' | 'light';
@@ -65,6 +65,8 @@ export const useStoryStore = create<StoryState>()(
       activeSlideId: null,
       selectedElementId: null,
       zoom: 1,
+      zoomMode: 'auto',
+      themeMode: 'dark',
       customPresets: (() => {
         try {
           const val = localStorage.getItem('story_engine_custom_presets');
