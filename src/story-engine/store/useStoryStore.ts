@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { temporal } from 'zundo';
-import type { Story, Slide, StoryElement, SlideBackground, NewStoryElement, AnimationPreset, ClickTrigger, ClickAction, StageFormatId } from '../core/types';
+import type { Story, Slide, StoryElement, SlideBackground, NewStoryElement, AnimationPreset, ClickTrigger, StageFormatId } from '../core/types';
 
 // Helper to generate safe IDs
 const generateId = () => Math.random().toString(36).substring(2, 9);
@@ -9,10 +9,10 @@ export interface StoryState {
   story: Story | null;
   activeSlideId: string | null;
   selectedElementId: string | null;
-  zoom: number;
+  zoom: number; 
   /** null = auto-fit to container */
-  zoomMode: 'auto' | 'manual';
-  themeMode: 'dark' | 'light';
+  zoomMode?: 'auto' | 'manual';
+  themeMode?: 'dark' | 'light';
 
   
   // Actions
@@ -65,6 +65,8 @@ export const useStoryStore = create<StoryState>()(
       activeSlideId: null,
       selectedElementId: null,
       zoom: 1,
+      zoomMode: 'auto',
+      themeMode: 'dark',
       customPresets: (() => {
         try {
           const val = localStorage.getItem('story_engine_custom_presets');

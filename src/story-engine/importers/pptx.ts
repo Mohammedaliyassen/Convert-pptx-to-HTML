@@ -196,15 +196,15 @@ const applyColorTransforms = (baseHex: string, colorNode: Element): string => {
 };
 
 /** Read alpha 0–1 from a color node (default 1 = opaque) */
-const readColorAlpha = (colorNode: Element): number => {
-  const el =
-    colorNode.getElementsByTagNameNS('*', 'alpha')[0] ||
-    colorNode.getElementsByTagName('a:alpha')[0];
-  if (!el) return 1;
-  const v = parseInt(el.getAttribute('val') || '', 10);
-  if (isNaN(v)) return 1;
-  return Math.max(0, Math.min(1, v / 100000));
-};
+// const readColorAlpha = (colorNode: Element): number => {
+//   const el =
+//     colorNode.getElementsByTagNameNS('*', 'alpha')[0] ||
+//     colorNode.getElementsByTagName('a:alpha')[0];
+//   if (!el) return 1;
+//   const v = parseInt(el.getAttribute('val') || '', 10);
+//   if (isNaN(v)) return 1;
+//   return Math.max(0, Math.min(1, v / 100000));
+// };
 
 /**
  * Resolve any solidFill / srgbClr / schemeClr / sysClr under a parent node
