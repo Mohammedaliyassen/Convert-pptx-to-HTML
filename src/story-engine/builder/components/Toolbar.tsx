@@ -3,7 +3,7 @@ import { useStore } from 'zustand';
 import { useStoryStore } from '../../store/useStoryStore';
 import { Play, Plus, Copy, Trash2, Globe, Undo, Redo, FileJson, Layers, Upload, Sun, Moon } from 'lucide-react';
 import styles from '../StoryBuilder.module.css';
-import type { Story } from '../../core/types';
+import type { Story, AnimationPreset } from '../../core/types';
 
 interface ToolbarProps {
   onPreviewToggle: () => void;
@@ -29,6 +29,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onPreviewToggle }) => {
     loadStory,
     themeMode,
     setThemeMode,
+    customPresets,
   } = useStoryStore();
 
   const jsonInputRef = useRef<HTMLInputElement>(null);
@@ -58,7 +59,24 @@ export const Toolbar: React.FC<ToolbarProps> = ({ onPreviewToggle }) => {
 
   const handleExportJson = () => {
     if (!story) return;
-    const jsonString = JSON.stringify(story, null, 2);
+    // Custom animation keyframes live only in the author's browser (localStorage).
+    // Embed them (plus any per-element sound) directly onto each element's
+    // animation so the exported story is fully self-contained and plays in any
+    // player — including the production frontend, which has no local store.
+    const customMap = new Map<string, AnimationPreset>();
+    customPresets.forEach((p) => customMap.set(p.id, p));
+    const exported = structuredClone(story);
+    exported.slides.forEach((slide) => {
+      slide.elements.forEach((el) => {
+        if (el.animation?.presetId) {
+          const custom = customMap.get(el.animation.presetId);
+          if (custom?.keyframes?.length) {
+            el.animation.keyframes = custom.keyframes;
+          }
+        }
+      });
+    });
+    const jsonString = JSON.stringify(exported, null, 2);
     const blob = new Blob([jsonString], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');

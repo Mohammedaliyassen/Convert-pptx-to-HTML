@@ -19,6 +19,8 @@ export interface BaseElement {
     delay: number;
     repeat: number;
     ease?: string;
+    /** Embedded custom keyframes (self-contained export) */
+    keyframes?: CustomKeyframe[];
     /** Optional SFX played when this animation starts */
     soundSrc?: string | null;
   } | null;
