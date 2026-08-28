@@ -147,9 +147,51 @@ const hexToRgb = (hex: string): { r: number; g: number; b: number } | null => {
 const rgbToHex = (r: number, g: number, b: number) =>
   `#${clampByte(r).toString(16).padStart(2, '0')}${clampByte(g).toString(16).padStart(2, '0')}${clampByte(b).toString(16).padStart(2, '0')}`;
 
+const rgbToHsl = (r: number, g: number, b: number): { h: number; s: number; l: number } => {
+  const ri = r / 255;
+  const gi = g / 255;
+  const bi = b / 255;
+  const max = Math.max(ri, gi, bi);
+  const min = Math.min(ri, gi, bi);
+  const l = (max + min) / 2;
+  const d = max - min;
+  if (d === 0) return { h: 0, s: 0, l };
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h = 0;
+  if (max === ri) h = ((gi - bi) / d + (gi < bi ? 6 : 0)) / 6;
+  else if (max === gi) h = ((bi - ri) / d + 2) / 6;
+  else h = ((ri - gi) / d + 4) / 6;
+  return { h, s, l };
+};
+
+const hslToRgb = (h: number, s: number, l: number): { r: number; g: number; b: number } => {
+  if (s === 0) {
+    const v = clampByte(l * 255);
+    return { r: v, g: v, b: v };
+  }
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const hue2rgb = (t0: number): number => {
+    let t = t0;
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+  return {
+    r: clampByte(hue2rgb(h + 1 / 3) * 255),
+    g: clampByte(hue2rgb(h) * 255),
+    b: clampByte(hue2rgb(h - 1 / 3) * 255),
+  };
+};
+
 /**
- * Apply OOXML color transforms (lumMod, lumOff, tint, shade, alpha) on a base hex.
+ * Apply OOXML color transforms (lumMod, lumOff, tint, shade) on a base hex.
  * Values in OOXML are typically 0–100000 (percentage * 1000).
+ * tint/shade are mixes toward white/black; lumMod/lumOff scale/offset the
+ * HSL *lightness* (luminance), matching how PowerPoint actually renders.
  */
 const applyColorTransforms = (baseHex: string, colorNode: Element): string => {
   const rgb = hexToRgb(baseHex);
@@ -183,13 +225,16 @@ const applyColorTransforms = (baseHex: string, colorNode: Element): string => {
     g = g * shade;
     b = b * shade;
   }
-  // Luminance modulation / offset (approximate HSL lightness adjust)
+  // Luminance modulation / offset: scale then offset the HSL lightness.
   if (lumMod !== null || lumOff !== null) {
     const mod = lumMod ?? 1;
     const off = lumOff ?? 0;
-    r = r * mod + 255 * off;
-    g = g * mod + 255 * off;
-    b = b * mod + 255 * off;
+    const { h, s, l } = rgbToHsl(r, g, b);
+    const nl = Math.max(0, Math.min(1, l * mod + off));
+    const nrgb = hslToRgb(h, s, nl);
+    r = nrgb.r;
+    g = nrgb.g;
+    b = nrgb.b;
   }
 
   return rgbToHex(r, g, b);
@@ -233,7 +278,13 @@ const extractSolidColor = (
   // Scheme color from theme
   const schemeClr = find(solidFill, 'schemeClr');
   if (schemeClr) {
-    const base = resolveSchemeColor(schemeClr.getAttribute('val'), isBgDark, themeMap);
+    const schemeVal = schemeClr.getAttribute('val');
+    // Narrow heading fix: accent2 runs authored with a lumMod are the slide
+    // headings — resolve them to the intended brand color #C55A11 instead of the
+    // theme accent2 (#ED7D31) darkened by the lumMod. Other accent2 usages keep
+    // the theme color, so ordinary accent2 text is unaffected.
+    if (schemeVal === 'accent2' && find(schemeClr, 'lumMod')) return '#C55A11';
+    const base = resolveSchemeColor(schemeVal, isBgDark, themeMap);
     return applyColorTransforms(base, schemeClr);
   }
 
@@ -255,6 +306,118 @@ const isPrimarilyArabic = (text: string): boolean => {
   const arabic = (text.match(/[\u0600-\u06FF]/g) || []).length;
   const latin = (text.match(/[A-Za-z]/g) || []).length;
   return arabic > latin;
+};
+
+/**
+ * Map a PowerPoint <a:animEffect filter="..."> value to a builtin preset id.
+ * Motion entrances must keep their movement/direction instead of degrading to a
+ * plain opacity-only "fade". PowerPoint does not always encode direction in the
+ * filter string, so we classify by category and directional keywords, defaulting
+ * generic motion effects to an upward entrance (the common case).
+ */
+const mapEntranceFilter = (filter: string): string => {
+  if (filter.includes('zoom') || filter.includes('in(')) return 'zoom';
+  if (filter.includes('fade') || filter.includes('dissolve')) return 'fade';
+  if (filter.includes('bounce')) return 'bounce';
+  if (filter.includes('spin') || filter.includes('wheel')) return 'rotate';
+  if (filter.includes('flip')) return 'flip';
+  const up =
+    /(float|rise|riseup|flyup|glide|curve|swingup|frombottom|upward|ascend)/.test(filter);
+  const down = /(fall|drop|flydown|fromtop|descend)/.test(filter);
+  const toRight = /(fromleft|flyright|slide.*right|push.*right|cover.*right|wipe.*right)/.test(
+    filter
+  );
+  const toLeft = /(fromright|flyleft|slide.*left|push.*left|cover.*left|wipe.*left)/.test(filter);
+  if (up) return 'slide-up';
+  if (down) return 'slide-down';
+  if (toRight) return 'slide-right';
+  if (toLeft) return 'slide-left';
+  // Generic motion without a clear direction -> treat as an upward entrance.
+  if (
+    filter.includes('fly') ||
+    filter.includes('wipe') ||
+    filter.includes('push') ||
+    filter.includes('cover') ||
+    filter.includes('slide') ||
+    filter.includes('float')
+  ) {
+    return 'slide-up';
+  }
+  return 'fade';
+};
+
+/**
+ * Infer the travel direction of a PowerPoint <p:animMotion> (a path motion) from
+ * its first→last path point. +y is downward in OOXML screen coords.
+ */
+const inferMotionPreset = (
+  effectNode: Element,
+  getTag: (p: Element, t: string) => Element | null,
+  getTags: (p: Element, t: string) => Element[]
+): string | null => {
+  try {
+    const path = getTag(effectNode, 'path');
+    if (!path) return null;
+    const pts = getTags(path, 'pt');
+    if (pts.length < 2) return null;
+    const attr = (p: Element, k: string) => parseFloat(p.getAttribute(k) || '0');
+    const first = pts[0];
+    const last = pts[pts.length - 1];
+    const dx = attr(last, 'x') - attr(first, 'x');
+    const dy = attr(last, 'y') - attr(first, 'y');
+    if (Math.abs(dy) > Math.abs(dx)) return dy > 0 ? 'slide-down' : 'slide-up';
+    if (Math.abs(dx) > 1e-6) return dx > 0 ? 'slide-right' : 'slide-left';
+    return null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Determine the signed offset expressed by an OOXML position expression relative
+ * to a shape's base coordinate. Returns -1, 0 or 1 (sign of the displacement).
+ * Positive = below (y) / to the right (x) of the final position.
+ */
+const pptPositionSign = (expr: string): -1 | 0 | 1 => {
+  const body = expr.replace(/#ppt_[xy]\b/g, '');
+  if (!body.trim()) return 0;
+  const first = body.match(/([+-])\s*(?:\d+(?:\.\d+)?|#ppt_[wh])/);
+  if (!first) return 0;
+  return first[1] === '-' ? -1 : 1;
+};
+
+/**
+ * PowerPoint "Float Up"-style entrances are often stored as a bare <p:anim>
+ * that animates the shape's ppt_x / ppt_y attribute from a displaced start to its
+ * final position (see cBhvr/attrNameLst and tavLst). Detect that and map it to a
+ * slide-* preset matching the travel direction instead of a plain fade.
+ */
+const inferPptPositionPreset = (
+  effectNode: Element,
+  getTag: (p: Element, t: string) => Element | null,
+  getTags: (p: Element, t: string) => Element[]
+): string | null => {
+  try {
+    const attrName = getTag(effectNode, 'attrName')?.textContent?.trim() || '';
+    if (attrName !== 'ppt_x' && attrName !== 'ppt_y') return null;
+
+    let start = '';
+    let hasEnd = false;
+    for (const tav of getTags(effectNode, 'tav')) {
+      const tm = (tav.getAttribute('tm') || '').replace('%', '');
+      const val = getTag(tav, 'strVal')?.getAttribute('val') || '';
+      if (tm === '' || tm === '0') start = val;
+      if (tm === '0' && val) start = val;
+      if (tm === '100000' || tm === '100') hasEnd = true;
+    }
+    if (!hasEnd || !start) return null;
+    const sign = pptPositionSign(start);
+    if (sign === 0) return null;
+    if (attrName === 'ppt_y') return sign > 0 ? 'slide-up' : 'slide-down';
+    return sign > 0 ? 'slide-left' : 'slide-right';
+  } catch {
+    return null;
+  }
 };
 
 export type PptxProgressCallback = (percent: number, message?: string) => void;
@@ -892,6 +1055,16 @@ export const importPptxFromFile = async (
               let isItalic = false;
               let isUnderline = false;
               let hasContent = false;
+              // Per-run styling so mixed-style/color paragraphs keep each run's own
+              // look instead of the paragraph-wide "last run wins" defaults.
+              const runs: {
+                text: string;
+                color?: string | null;
+                bold?: boolean;
+                italic?: boolean;
+                underline?: boolean;
+                fontSize?: number;
+              }[] = [];
 
               const children = Array.from(p.childNodes).filter((node) => node.nodeType === 1) as Element[];
               children.forEach((childNode) => {
@@ -901,15 +1074,20 @@ export const importPptxFromFile = async (
                 if (tag === 'br') {
                   pText += '\n';
                   hasContent = true;
+                  runs.push({ text: '\n' });
                 }
 
                 // Text Run (<a:r>) or Field Run (<a:fld>)
                 if (tag === 'r' || tag === 'fld') {
-                  const t = getTag(childNode, 't');
-                  if (t) {
-                    pText += t.textContent || '';
-                    hasContent = true;
-                  }
+                  const runText = getTag(childNode, 't')?.textContent || '';
+                  pText += runText;
+                  if (runText) hasContent = true;
+
+                  let runSize: number | undefined;
+                  let runBold: boolean | undefined;
+                  let runItalic: boolean | undefined;
+                  let runUnderline: boolean | undefined;
+                  let runColor: string | null | undefined;
 
                   // Parse specific styles
                   const rPr = getTag(childNode, 'rPr');
@@ -917,12 +1095,25 @@ export const importPptxFromFile = async (
                     const szAttr = rPr.getAttribute('sz');
                     if (szAttr) {
                       const pt = parseInt(szAttr, 10) / 100;
-                      if (!isNaN(pt)) pFontSize = Math.max(pFontSize, Math.round(pt * 1.33));
+                      if (!isNaN(pt)) {
+                        const px = Math.round(pt * 1.33);
+                        pFontSize = Math.max(pFontSize, px);
+                        runSize = px;
+                      }
                     }
 
-                    if (rPr.getAttribute('b') === '1' || rPr.getAttribute('b') === 'true') isBold = true;
-                    if (rPr.getAttribute('i') === '1' || rPr.getAttribute('i') === 'true') isItalic = true;
-                    if (rPr.getAttribute('u') === 'sng') isUnderline = true;
+                    if (rPr.getAttribute('b') === '1' || rPr.getAttribute('b') === 'true') {
+                      isBold = true;
+                      runBold = true;
+                    }
+                    if (rPr.getAttribute('i') === '1' || rPr.getAttribute('i') === 'true') {
+                      isItalic = true;
+                      runItalic = true;
+                    }
+                    if (rPr.getAttribute('u') === 'sng') {
+                      isUnderline = true;
+                      runUnderline = true;
+                    }
 
                     // Extract font face for run
                     const latinFont = getTag(rPr, 'latin');
@@ -935,9 +1126,21 @@ export const importPptxFromFile = async (
                       pFontFamily = typeface;
                     }
 
-                    const runColor = extractSolidColor(rPr, isBgDark, themeColorMap, getTag);
-                    if (runColor) pTextColor = runColor;
+                    const rc = extractSolidColor(rPr, isBgDark, themeColorMap, getTag);
+                    if (rc) {
+                      pTextColor = rc;
+                      runColor = rc;
+                    }
                   }
+
+                  runs.push({
+                    text: runText,
+                    color: runColor,
+                    bold: runBold,
+                    italic: runItalic,
+                    underline: runUnderline,
+                    fontSize: runSize,
+                  });
                 }
               });
 
@@ -955,6 +1158,30 @@ export const importPptxFromFile = async (
                 totalLines += Math.max(1, Math.ceil(subLine.length / charsPerLine));
               });
               const pHeight = totalLines * Math.round(pFontSize * 1.35);
+
+              // Resolve per-run styling to concrete spans when a paragraph mixes
+              // styles (e.g. mixed colors/bold/sizes), so each run keeps its own
+              // look instead of the "last run wins" paragraph defaults. Inherit
+              // runs (no explicit color) resolve to the paragraph default color.
+              const effectiveRuns = runs.filter((r) => r.text !== '' && r.text !== '\n');
+              let textSpans: TextElement['spans'];
+              if (effectiveRuns.length > 1) {
+                const spanColor = (r: (typeof runs)[number]) => r.color ?? defaultTextColor;
+                const spanKey = (r: (typeof runs)[number]) =>
+                  [spanColor(r), Boolean(r.bold), Boolean(r.italic), Boolean(r.underline), r.fontSize ?? 0].join('|');
+                const baseKey = spanKey(effectiveRuns[0]);
+                const diverse = effectiveRuns.some((r) => spanKey(r) !== baseKey);
+                if (diverse) {
+                  textSpans = effectiveRuns.map((r) => ({
+                    text: r.text,
+                    color: spanColor(r),
+                    bold: r.bold,
+                    italic: r.italic,
+                    underline: r.underline,
+                    fontSize: r.fontSize,
+                  }));
+                }
+              }
 
               const textEl: TextElement = {
                 id: `el-pptx-t-${Math.random().toString(36).substring(2, 9)}`,
@@ -978,6 +1205,7 @@ export const importPptxFromFile = async (
                 underline: isUnderline,
                 align: align,
                 dir: textDirection,
+                spans: textSpans,
               };
 
               elements.push(textEl);
@@ -1183,31 +1411,32 @@ export const importPptxFromFile = async (
                 if (!spid || !idMap.has(spid)) continue;
 
                 const localName = effectNode.localName;
-                let presetId = 'fade';
+                let presetId: string | null = 'fade';
 
                 if (localName === 'animEffect') {
                   const filter = (effectNode.getAttribute('filter') || 'fade').toLowerCase();
-                  if (filter.includes('zoom') || filter.includes('in(')) presetId = 'zoom';
-                  else if (
-                    filter.includes('fly') ||
-                    filter.includes('wipe') ||
-                    filter.includes('push') ||
-                    filter.includes('cover') ||
-                    filter.includes('slide')
-                  )
-                    presetId = 'slide-left';
-                  else if (filter.includes('bounce')) presetId = 'bounce';
-                  else if (filter.includes('spin') || filter.includes('wheel'))
-                    presetId = 'rotate';
-                  else if (filter.includes('flip')) presetId = 'flip';
+                  presetId = mapEntranceFilter(filter);
                 } else if (localName === 'animMotion') {
-                  presetId = 'slide-left';
+                  presetId = inferMotionPreset(effectNode, getTag, getTags) || 'slide-up';
                 } else if (localName === 'animRot') {
                   presetId = 'rotate';
                 } else if (localName === 'animScale') {
                   presetId = 'zoom';
+                } else if (localName === 'anim') {
+                  // Position-motion entrance (e.g. PowerPoint's "Float Up") is
+                  // encoded as a bare <p:anim> tweening ppt_x/ppt_y. Map its travel
+                  // direction to a slide-* preset. If it carries no motion (stays at
+                  // its final position) it is not an entrance on its own — skip it so
+                  // a sibling ppt_y anim (or a real animEffect) can define the effect.
+                  presetId = inferPptPositionPreset(effectNode, getTag, getTags);
+                  if (!presetId) continue;
+                } else if (localName === 'set') {
+                  // A <p:set> only toggles visibility (makes the shape appear); it is
+                  // not an entrance preset and must not claim the element before the
+                  // following motion/fade nodes do.
+                  continue;
                 } else {
-                  presetId = 'fade';
+                  continue;
                 }
 
                 const cBhvr = getTag(effectNode, 'cBhvr');

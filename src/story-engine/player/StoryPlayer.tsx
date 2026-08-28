@@ -592,7 +592,22 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
           }}
           {...clickProps}
         >
-          {textEl.text}
+          {textEl.spans && textEl.spans.length > 0
+            ? textEl.spans.map((span, i) => (
+                <span
+                  key={i}
+                  style={{
+                    color: span.color || undefined,
+                    fontWeight: span.bold ? 'bold' : 'normal',
+                    fontStyle: span.italic ? 'italic' : 'normal',
+                    textDecoration: span.underline ? 'underline' : 'none',
+                    fontSize: span.fontSize ? `${span.fontSize}px` : undefined,
+                  }}
+                >
+                  {span.text}
+                </span>
+              ))
+            : textEl.text}
         </div>
       );
     }

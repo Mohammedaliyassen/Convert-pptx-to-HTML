@@ -38,6 +38,19 @@ export interface TextElement extends BaseElement {
   align: 'left' | 'center' | 'right' | 'justify';
   dir: 'ltr' | 'rtl';
   lineHeight?: number;
+  /** Run-level styled spans. Present when a paragraph's runs differ (e.g. mixed
+   *  colors); the player renders these instead of a single colored string. */
+  spans?: TextSpan[];
+}
+
+/** A single styled run within a text element (from PowerPoint <a:r>). */
+export interface TextSpan {
+  text: string;
+  color?: string | null;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  fontSize?: number;
 }
 
 export interface ImageElement extends BaseElement {
