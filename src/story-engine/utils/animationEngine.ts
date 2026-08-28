@@ -4,6 +4,8 @@ import type { AnimationPreset } from '../core/types';
 export const BUILTIN_PRESETS: AnimationPreset[] = [
   // —— Entrance ——
   { id: 'fade', name: 'تلاشي (Fade In)', type: 'builtin', category: 'entrance', icon: '✨' },
+  { id: 'float-up', name: 'طفو للأعلى (Float Up)', type: 'builtin', category: 'entrance', icon: '🎈' },
+  { id: 'float-down', name: 'طفو للأسفل (Float Down)', type: 'builtin', category: 'entrance', icon: '🎈' },
   { id: 'zoom', name: 'تكبير (Zoom In)', type: 'builtin', category: 'entrance', icon: '🔍' },
   { id: 'slide-left', name: 'انزلاق لليسار', type: 'builtin', category: 'entrance', icon: '⬅️' },
   { id: 'slide-right', name: 'انزلاق لليمين', type: 'builtin', category: 'entrance', icon: '➡️' },
@@ -64,6 +66,27 @@ export const applyAnimation = (
         fromVars = { opacity: 0 };
         toVars = { ...toVars, opacity: 1 };
         break;
+      case 'float-up': {
+        // Matches PowerPoint "Float Up": fade + small upward travel (~8% height / 40px)
+        const dy = isKonva ? 40 : 40;
+        fromVars = isKonva
+          ? { y: target.y() + dy, opacity: 0 }
+          : { y: dy, opacity: 0 };
+        toVars = isKonva
+          ? { ...toVars, y: target.y(), opacity: 1, ease: 'power1.out' }
+          : { ...toVars, y: 0, opacity: 1, ease: 'power1.out' };
+        break;
+      }
+      case 'float-down': {
+        const dy = isKonva ? 40 : 40;
+        fromVars = isKonva
+          ? { y: target.y() - dy, opacity: 0 }
+          : { y: -dy, opacity: 0 };
+        toVars = isKonva
+          ? { ...toVars, y: target.y(), opacity: 1, ease: 'power1.out' }
+          : { ...toVars, y: 0, opacity: 1, ease: 'power1.out' };
+        break;
+      }
       case 'fade-out':
         fromVars = { opacity: 1 };
         toVars = { ...toVars, opacity: 0 };

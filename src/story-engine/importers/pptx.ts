@@ -347,6 +347,52 @@ const mapEntranceFilter = (filter: string): string => {
 };
 
 /**
+ * Map PowerPoint numeric entrance presetID → builtin preset id.
+ * See OOXML ST_TLTimeNodePresetClassType / common Office presets.
+ * 42 = Float Up (very common in Arabic educational decks).
+ */
+const mapEntrancePresetId = (presetIdAttr: string | null, subtype?: string | null): string | null => {
+  const id = parseInt(presetIdAttr || '', 10);
+  if (isNaN(id)) return null;
+  const s = parseInt(subtype || '0', 10);
+  const dirFromSubtype = (): string => {
+    // OOXML subtype for many directional entrances: 1=from bottom (up), 2=from left (right),
+    // 3=from top (down), 4=from right (left) — varies by effect; these are the common ones.
+    if (s === 2) return 'slide-right';
+    if (s === 3) return 'slide-down';
+    if (s === 4 || s === 8) return 'slide-left';
+    if (s === 1) return 'slide-up';
+    return 'slide-up';
+  };
+  // Appear / Fade / Dissolve
+  if (id === 1 || id === 10 || id === 14) return 'fade';
+  // Float Up (Office preset 42) — subtle rise + fade, NOT full slide
+  if (id === 42) return 'float-up';
+  // Fly In / Peek In / Crawl / Wipe / Plus / Wheel (directional)
+  if ([2, 3, 4, 5, 7, 8, 9, 22].includes(id)) return dirFromSubtype();
+  // Grow & Turn / Zoom / Expand
+  if (id === 53 || id === 55 || id === 16) return 'zoom';
+  // Spinner / Swivel
+  if (id === 49 || id === 45) return 'rotate';
+  // Bounce
+  if (id === 56) return 'bounce';
+  // Flip
+  if (id === 31 || id === 32) return 'flip';
+  // Unknown numeric id → let filter / motion inference decide
+  return null;
+};
+
+/** Rank presets so motion wins over a plain fade when both are present */
+const presetRank = (id: string): number => {
+  if (id.startsWith('slide-')) return 5;
+  if (id === 'zoom' || id === 'bounce' || id === 'rotate' || id === 'flip') return 4;
+  if (id === 'float-up' || id === 'float-down') return 3.5;
+  if (id === 'pop') return 3;
+  if (id === 'fade') return 1;
+  return 2;
+};
+
+/**
  * Infer the travel direction of a PowerPoint <p:animMotion> (a path motion) from
  * its first→last path point. +y is downward in OOXML screen coords.
  */
@@ -386,11 +432,17 @@ const pptPositionSign = (expr: string): -1 | 0 | 1 => {
   return first[1] === '-' ? -1 : 1;
 };
 
+/** Absolute numeric offset in a ppt formula like "#ppt_y+.1" or "#ppt_x-0.5" */
+const pptPositionMagnitude = (expr: string): number => {
+  const m = expr.match(/[+-]\s*(\d+(?:\.\d+)?)/);
+  if (!m) return 0;
+  return Math.abs(parseFloat(m[1]));
+};
+
 /**
- * PowerPoint "Float Up"-style entrances are often stored as a bare <p:anim>
- * that animates the shape's ppt_x / ppt_y attribute from a displaced start to its
- * final position (see cBhvr/attrNameLst and tavLst). Detect that and map it to a
- * slide-* preset matching the travel direction instead of a plain fade.
+ * Map a ppt_x/ppt_y tween to the closest builtin preset.
+ * Small offsets (≤ ~0.25) are PowerPoint "Float" — NOT a full slide-from-offscreen.
+ * Large offsets map to slide-*.
  */
 const inferPptPositionPreset = (
   effectNode: Element,
@@ -413,7 +465,14 @@ const inferPptPositionPreset = (
     if (!hasEnd || !start) return null;
     const sign = pptPositionSign(start);
     if (sign === 0) return null;
-    if (attrName === 'ppt_y') return sign > 0 ? 'slide-up' : 'slide-down';
+    const mag = pptPositionMagnitude(start);
+    // Float family: PowerPoint Float Up uses ~0.1
+    const isFloat = mag > 0 && mag <= 0.35;
+    if (attrName === 'ppt_y') {
+      if (isFloat) return sign > 0 ? 'float-up' : 'float-down';
+      return sign > 0 ? 'slide-up' : 'slide-down';
+    }
+    // Horizontal: no dedicated float preset — use gentle slide
     return sign > 0 ? 'slide-left' : 'slide-right';
   } catch {
     return null;
@@ -911,7 +970,7 @@ export const importPptxFromFile = async (
             };
             elements.push(imgEl);
             if (originalId) {
-              idMap.set(originalId, [imgEl.id]);
+              idMap.set(String(originalId), [imgEl.id]);
             }
           } catch (imgErr) {
             // One bad/unsupported image must not abort the whole PPTX import
@@ -987,7 +1046,7 @@ export const importPptxFromFile = async (
               };
               elements.push(imgEl);
               if (originalId) {
-                idMap.set(originalId, [imgEl.id]);
+                idMap.set(String(originalId), [imgEl.id]);
               }
             }
           }
@@ -1214,7 +1273,7 @@ export const importPptxFromFile = async (
             });
 
             if (originalId && paragraphIds.length > 0) {
-              idMap.set(originalId, paragraphIds);
+              idMap.set(String(originalId), paragraphIds);
             }
           }
         }
@@ -1416,6 +1475,24 @@ export const importPptxFromFile = async (
                 if (localName === 'animEffect') {
                   const filter = (effectNode.getAttribute('filter') || 'fade').toLowerCase();
                   presetId = mapEntranceFilter(filter);
+                  // Prefer numeric presetID from the enclosing effect node (cTn)
+                  // e.g. presetID=42 (Float Up) should be slide-up, not plain fade
+                  let parent: Element | null = effectNode.parentElement;
+                  while (parent) {
+                    if (parent.localName === 'cTn' && parent.getAttribute('presetID')) {
+                      const fromId = mapEntrancePresetId(
+                        parent.getAttribute('presetID'),
+                        parent.getAttribute('presetSubtype')
+                      );
+                      // Only override when we recognize the preset AND it ranks higher
+                      // (never replace a strong motion with an unknown/null mapping)
+                      if (fromId && presetRank(fromId) > presetRank(presetId)) {
+                        presetId = fromId;
+                      }
+                      break;
+                    }
+                    parent = parent.parentElement;
+                  }
                 } else if (localName === 'animMotion') {
                   presetId = inferMotionPreset(effectNode, getTag, getTags) || 'slide-up';
                 } else if (localName === 'animRot') {
@@ -1452,17 +1529,29 @@ export const importPptxFromFile = async (
                     ? Math.max(parseInt(durAttr, 10) / 1000, 0.1)
                     : 0.6;
 
-                const targetElementIds = idMap.get(spid);
+                const targetElementIds =
+                  idMap.get(String(spid)) || idMap.get(spid) || null;
                 if (targetElementIds) {
                   targetElementIds.forEach((elId) => {
                     const el = elements.find((item) => item.id === elId);
-                    if (el && !el.animation) {
+                    if (!el) return;
+                    const startTime = Math.round((clock + localDelay) * 100) / 100;
+                    if (!el.animation) {
                       el.animation = {
                         presetId,
-                        startTime: Math.round((clock + localDelay) * 100) / 100,
+                        startTime,
                         duration,
                         delay: 0,
                         repeat: 0,
+                      };
+                    } else if (
+                      presetRank(presetId) > presetRank(el.animation.presetId || 'fade')
+                    ) {
+                      // Upgrade preset only — keep original build-step timing
+                      el.animation = {
+                        ...el.animation,
+                        presetId,
+                        duration: Math.max(el.animation.duration || 0, duration),
                       };
                     }
                   });
@@ -1563,6 +1652,118 @@ export const importPptxFromFile = async (
       }
     } catch (timingErr) {
       console.warn('Could not parse slide timing animations:', timingErr);
+    }
+
+    // ------------------------------------------------------------------
+    // Fill-only entrance pass — ONLY assigns animations to shapes that still
+    // have animation: null after the linear group walk. Never overwrites
+    // timings, never forces hidden, does not re-sequence existing effects.
+    // This recovers nested clickEffect/entr nodes the group walk can miss
+    // without damaging other already-extracted animations.
+    // ------------------------------------------------------------------
+    try {
+      const timing2 = getTag(sld, 'timing');
+      if (timing2) {
+        const allCTn = getTags(timing2, 'cTn');
+        // Highest startTime already assigned on this slide
+        let nextClock = 0;
+        elements.forEach((el) => {
+          if (el.animation && typeof el.animation.startTime === 'number') {
+            nextClock = Math.max(
+              nextClock,
+              el.animation.startTime + (el.animation.duration || 0.5)
+            );
+          }
+        });
+
+        // Only top-level effect nodes (have presetID or nodeType *Effect)
+        for (const cTn of allCTn) {
+          const presetClass = cTn.getAttribute('presetClass');
+          if (presetClass && presetClass !== 'entr') continue;
+          const nodeType = cTn.getAttribute('nodeType') || '';
+          const hasPreset = cTn.hasAttribute('presetID');
+          const isEffectNode =
+            nodeType === 'clickEffect' ||
+            nodeType === 'withEffect' ||
+            nodeType === 'afterEffect' ||
+            (hasPreset && presetClass === 'entr');
+          if (!isEffectNode) continue;
+
+          const spTgt = getTag(cTn, 'spTgt');
+          const spid = spTgt?.getAttribute('spid');
+          if (!spid) continue;
+
+          const ids = idMap.get(String(spid)) || idMap.get(spid);
+          if (!ids || ids.length === 0) continue;
+
+          // Skip if every mapped element already has an animation
+          const needsFill = ids.some((elId) => {
+            const el = elements.find((e) => e.id === elId);
+            return el && !el.animation;
+          });
+          if (!needsFill) continue;
+
+          // Duration
+          let duration = 0.8;
+          const animEffect = getTag(cTn, 'animEffect');
+          const animNode = getTag(cTn, 'anim');
+          const scaleNode = getTag(cTn, 'animScale');
+          const motionNode = getTag(cTn, 'animMotion');
+          const bhvrCTn = (node: Element | null) => {
+            if (!node) return null;
+            const bh = getTag(node, 'cBhvr');
+            return bh ? getTag(bh, 'cTn') : getTag(node, 'cTn');
+          };
+          const durSource =
+            bhvrCTn(animEffect) || bhvrCTn(animNode) || bhvrCTn(scaleNode) || bhvrCTn(motionNode) || cTn;
+          const durAttr = durSource?.getAttribute('dur');
+          if (durAttr && durAttr !== 'indefinite') {
+            const ms = parseInt(durAttr, 10);
+            if (!isNaN(ms) && ms > 0) duration = Math.max(ms / 1000, 0.15);
+          }
+
+          // Resolve preset carefully
+          let presetId =
+            mapEntrancePresetId(cTn.getAttribute('presetID'), cTn.getAttribute('presetSubtype')) ||
+            'fade';
+          if (animEffect) {
+            const filter = (animEffect.getAttribute('filter') || '').toLowerCase();
+            if (filter) {
+              const fromFilter = mapEntranceFilter(filter);
+              if (presetRank(fromFilter) > presetRank(presetId)) presetId = fromFilter;
+            }
+          }
+          if (motionNode) {
+            const fromMotion = inferMotionPreset(motionNode, getTag, getTags);
+            if (fromMotion && presetRank(fromMotion) > presetRank(presetId)) presetId = fromMotion;
+          }
+          for (const animEl of getTags(cTn, 'anim')) {
+            const fromPos = inferPptPositionPreset(animEl, getTag, getTags);
+            if (fromPos && presetRank(fromPos) > presetRank(presetId)) presetId = fromPos;
+          }
+          if (scaleNode && presetRank('zoom') > presetRank(presetId)) presetId = 'zoom';
+
+          const startTime = Math.round(nextClock * 100) / 100;
+          let filled = false;
+          ids.forEach((elId) => {
+            const el = elements.find((e) => e.id === elId);
+            if (!el || el.animation) return; // never overwrite
+            el.animation = {
+              presetId,
+              startTime,
+              duration,
+              delay: 0,
+              repeat: 0,
+            };
+            filled = true;
+          });
+          if (filled) {
+            nextClock += Math.max(duration, 0.15);
+          }
+        }
+      }
+    } catch (fillErr) {
+      console.warn('Fill-only entrance pass failed:', fillErr);
     }
 
     // ------------------------------------------------------------------
