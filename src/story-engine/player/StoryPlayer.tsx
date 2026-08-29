@@ -8,7 +8,7 @@ import { Play, Pause, ChevronLeft, ChevronRight, Maximize2, Minimize2, X } from 
 import { useStoryStore } from '../store/useStoryStore';
 import { applyAnimation, BUILTIN_PRESETS } from '../utils/animationEngine';
 import gsap from 'gsap';
-import { loadGoogleFont } from '../utils/fontLoader';
+import { loadGoogleFont, getResolvedFontFamily } from '../utils/fontLoader';
 
 interface StoryPlayerProps {
   story: Story;
@@ -88,6 +88,23 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
     });
     clickAudioRef.current = [];
   }, [currentSlideIndex]);
+
+  // Preload every distinct text font up front so the correct typeface (esp. Dubai
+  // from the CDN) is ready before the first slide paints. Without this the title
+  // can flash/fall back to another Arabic font while the webfont loads, making
+  // the same font-size render differently.
+  useEffect(() => {
+    const families = new Set<string>();
+    story.slides.forEach((slide) => {
+      if (!slide) return;
+      slide.elements.forEach((el) => {
+        if (el.type === 'text' && el.fontFamily) {
+          families.add(el.fontFamily);
+        }
+      });
+    });
+    families.forEach((family) => loadGoogleFont(family));
+  }, [story.slides]);
 
   // Handle slide change
   const goToNextSlide = useCallback(() => {
@@ -577,7 +594,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
           id={`player-el-${el.id}`}
           style={{
             ...style,
-            fontFamily: textEl.fontFamily,
+            fontFamily: getResolvedFontFamily(textEl.fontFamily),
             fontSize: `${textEl.fontSize}px`,
             color: textEl.color,
             fontWeight: textEl.bold ? 'bold' : 'normal',
