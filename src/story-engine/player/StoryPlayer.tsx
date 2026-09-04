@@ -575,6 +575,9 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
           onClick: (e: React.MouseEvent) => {
             e.stopPropagation();
             handleElementClick(el.id);
+            // Release focus so a subsequent Space press drives slide/step
+            // navigation instead of re-triggering this button's sound.
+            (e.currentTarget as HTMLElement).blur();
           },
           role: 'button' as const,
           tabIndex: 0,
@@ -582,6 +585,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault();
               handleElementClick(el.id);
+              (e.currentTarget as HTMLElement).blur();
             }
           },
         }
