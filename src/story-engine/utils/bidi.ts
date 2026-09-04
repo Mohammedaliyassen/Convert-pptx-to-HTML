@@ -24,6 +24,50 @@ export function detectDir(text: string): 'ltr' | 'rtl' {
   return 'ltr';
 }
 
+/** Paired bracket mirrors: ')' <-> '(', ']' <-> '[', etc. */
+const BRACKET_MIRROR: Record<string, string> = {
+  ')': '(',
+  '(': ')',
+  ']': '[',
+  '[': ']',
+  '}': '{',
+  '{': '}',
+  '>': '<',
+  '<': '>',
+  '»': '«',
+  '«': '»',
+  '”': '“',
+  '“': '”',
+  '’': '‘',
+  '‘': '’',
+};
+
+/** Bracket faces that visually "open" a pair vs. those that "close" it. */
+const OPENING_BRACKETS = new Set(['(', '[', '{', '<', '«', '“', '‘']);
+const CLOSING_BRACKETS = new Set([')', ']', '}', '>', '»', '”', '’']);
+
+/**
+ * Normalize a reversed bracket pair so it reads canonically left-to-right in its
+ * storage form. When text is authored inside a bidi host it is common for the
+ * leading/trailing bracket faces to come out backwards, e.g. ")منزلي أو عائلي("
+ * instead of "(منزلي أو عائلي)". That inverted form then renders the parens on
+ * the wrong ends in an isolated run. If the leading run consists only of closing
+ * brackets and the trailing run only of opening brackets, mirror them both.
+ * Well-formed pairs ("(نص)", "أ) خيار") are left untouched.
+ */
+function normalizeBracketOrder(text: string): string {
+  const leadMatch = text.match(/^[)\]}>»”’]+/);
+  const trailMatch = text.match(/[([{<«“‘]+$/);
+  if (!leadMatch || !trailMatch) return text;
+  const lead = leadMatch[0];
+  const trail = trailMatch[0];
+  if (![...lead].every((c) => CLOSING_BRACKETS.has(c))) return text;
+  if (![...trail].every((c) => OPENING_BRACKETS.has(c))) return text;
+  const mirror = (s: string) =>
+    [...s].map((c) => BRACKET_MIRROR[c] ?? c).join('');
+  return mirror(lead) + text.slice(lead.length, text.length - trail.length) + mirror(trail);
+}
+
 /**
  * Split a string into consecutive directional runs. Only strong directional
  * characters (Arabic/Hebrew vs Latin letters) create a run boundary. Whitespace,
@@ -41,7 +85,10 @@ export function splitBidiRuns(text: string): BidiRun[] {
 
   const push = () => {
     if (current) {
-      runs.push({ text: current, dir: currentDir === 'rtl' ? 'rtl' : 'ltr' });
+      runs.push({
+        text: normalizeBracketOrder(current),
+        dir: currentDir === 'rtl' ? 'rtl' : 'ltr',
+      });
       current = '';
       currentDir = null;
     }
