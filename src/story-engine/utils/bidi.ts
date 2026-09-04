@@ -13,11 +13,12 @@ export type BidiRun = { text: string; dir: 'ltr' | 'rtl' };
  */
 export function detectDir(text: string): 'ltr' | 'rtl' {
   if (!text) return 'ltr';
-  const hasArabic = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/.test(text);
+  // Broad Arabic ranges incl. presentation forms & Quran ornaments (﴿ ﴾).
+  const hasArabic = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(text);
   const hasHebrew = /[\u0590-\u05FF\uFB1D-\uFB4F]/.test(text);
   if (hasArabic || hasHebrew) {
     // If the run also has Latin, Arabic dominance decides the base direction.
-    const arabic = (text.match(/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/g) || []).length;
+    const arabic = (text.match(/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/g) || []).length;
     const latin = (text.match(/[A-Za-z]/g) || []).length;
     return arabic >= latin ? 'rtl' : 'ltr';
   }

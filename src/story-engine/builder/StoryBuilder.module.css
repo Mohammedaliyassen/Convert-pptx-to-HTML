@@ -441,6 +441,33 @@
   outline: none;
 }
 
+.spansEditor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.spanRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid #2b2e36;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.spanPreview {
+  font-size: 0.85rem;
+  line-height: 1.3;
+  word-break: break-word;
+  flex: 1;
+}
+
 /* Preview Modal overlay */
 .playerModalOverlay {
   position: fixed;

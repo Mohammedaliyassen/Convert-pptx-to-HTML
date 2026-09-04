@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { temporal } from 'zundo';
-import type { Story, Slide, StoryElement, SlideBackground, NewStoryElement, AnimationPreset, ClickTrigger, StageFormatId } from '../core/types';
+import type { Story, Slide, StoryElement, TextElement, SlideBackground, NewStoryElement, AnimationPreset, ClickTrigger, StageFormatId } from '../core/types';
 
 // Helper to generate safe IDs
 const generateId = () => Math.random().toString(36).substring(2, 9);
@@ -28,6 +28,8 @@ export interface StoryState {
   updateSlideBackground: (slideId: string, background: SlideBackground) => void;
   addElement: (element: NewStoryElement) => void;
   updateElement: (elementId: string, updates: Partial<StoryElement>) => void;
+  /** Replace a text element's run-level styled spans in place (keeps element text). */
+  updateTextSpans: (elementId: string, spans: TextElement['spans']) => void;
   deleteElement: (elementId: string) => void;
   setZoom: (zoom: number) => void;
   setZoomMode: (mode: 'auto' | 'manual') => void;
@@ -355,6 +357,36 @@ export const useStoryStore = create<StoryState>()(
       return {
         ...slide,
         elements: updatedElements as StoryElement[],
+      };
+    });
+
+    set({
+      story: {
+        ...story,
+        slides: updatedSlides,
+      },
+    });
+  },
+
+  updateTextSpans: (elementId, spans) => {
+    const { story, activeSlideId } = get();
+    if (!story || !activeSlideId) return;
+
+    const updatedSlides = story.slides.map((slide) => {
+      if (slide.id !== activeSlideId) return slide;
+      return {
+        ...slide,
+        elements: slide.elements.map((el) => {
+          if (el.id !== elementId || el.type !== 'text') return el;
+          // Keep the element-level color in sync with the first span so the
+          // simpler "Text Color" control and exports stay coherent.
+          const firstColor = spans?.[0]?.color;
+          return {
+            ...el,
+            spans,
+            ...(firstColor ? { color: firstColor } : {}),
+          } as StoryElement;
+        }),
       };
     });
 

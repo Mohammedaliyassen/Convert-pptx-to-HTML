@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useStoryStore } from '../../store/useStoryStore';
-import type { TextElement, ImageElement } from '../../core/types';
-import { Trash2, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, AlignJustify, Star, Sparkles, Play } from 'lucide-react';
+import type { TextElement, TextSpan, ImageElement } from '../../core/types';
+import { Trash2, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, AlignJustify, Star, Sparkles, Play, Palette } from 'lucide-react';
 import styles from '../StoryBuilder.module.css';
 import { BUILTIN_PRESETS, PRESET_CATEGORIES } from '../../utils/animationEngine';
 import { AnimationCreator } from './AnimationCreator';
@@ -14,6 +14,7 @@ export const PropertiesPanel: React.FC = () => {
     activeSlideId,
     selectedElementId,
     updateElement,
+    updateTextSpans,
     deleteElement,
     bringToFront,
     sendToBack,
@@ -68,6 +69,14 @@ export const PropertiesPanel: React.FC = () => {
   const handleColorChange = (color: string) => {
     if (!selectedElementId) return;
     updateElement(selectedElementId, { color });
+  };
+
+  const handleSpanColorChange = (index: number, color: string) => {
+    if (!selectedElementId) return;
+    const el = selectedElement as TextElement;
+    if (!el || !el.spans) return;
+    const next = el.spans.map((span, i) => (i === index ? { ...span, color } : span));
+    updateTextSpans(selectedElementId, next);
   };
 
   const handleLineHeightChange = (lineHeight: number) => {
@@ -313,6 +322,39 @@ export const PropertiesPanel: React.FC = () => {
                     />
                   </div>
                 </div>
+
+                {/* Multi-color runs editor — lets you pick a color per styled run */}
+                {(selectedElement as TextElement).spans &&
+                  (selectedElement as TextElement).spans!.length > 1 && (
+                  <div className={styles.controlGroup} style={{ marginTop: '12px' }}>
+                    <label className={styles.controlGroupLabel} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Palette size={13} />
+                      {isRTL ? 'تلوين المقاطع:' : 'Color per segment:'}
+                    </label>
+                    <div className={styles.spansEditor}>
+                      {(selectedElement as TextElement).spans!.map((span: TextSpan, i: number) => (
+                        <div key={i} className={styles.spanRow}>
+                          <input
+                            type="color"
+                            value={span.color || (selectedElement as TextElement).color}
+                            onChange={(e) => handleSpanColorChange(i, e.target.value)}
+                            className={styles.colorPicker}
+                            title={isRTL ? 'لون هذا المقطع' : 'Color of this segment'}
+                          />
+                          <span
+                            className={styles.spanPreview}
+                            style={{
+                              color: span.color || (selectedElement as TextElement).color,
+                            }}
+                            dir={span.dir || 'auto'}
+                          >
+                            {span.text}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </>
           )}

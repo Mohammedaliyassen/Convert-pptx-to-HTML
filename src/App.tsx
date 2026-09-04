@@ -6,6 +6,7 @@ import { importImageFromUrl, importImageFromFile } from './story-engine/importer
 import {
   importPptxFromFile,
   type PptxQualityPreset,
+  type PptxDeckDirection,
   PPTX_QUALITY_PRESETS,
 } from './story-engine/importers/pptx';
 import { importPdfFromFile } from './story-engine/importers/pdf';
@@ -48,6 +49,7 @@ function App() {
   const [importProgress, setImportProgress] = useState<number | null>(null);
   const [importMessage, setImportMessage] = useState<string>('');
   const [pptxQuality, setPptxQuality] = useState<PptxQualityPreset>('balanced');
+  const [pptxDirection, setPptxDirection] = useState<PptxDeckDirection>('auto');
 
   // Standalone Player states
   const [standaloneStory, setStandaloneStory] = useState<Story | null>(null);
@@ -102,7 +104,7 @@ function App() {
           setImportProgress(percent);
           if (message) setImportMessage(message);
         },
-        { preset: pptxQuality }
+        { preset: pptxQuality, deckDirection: pptxDirection }
       );
       loadStory(importedStory);
       setIsConsoleOpen(false);
@@ -276,6 +278,23 @@ function App() {
                         أصغر حجم — {PPTX_QUALITY_PRESETS.minimal.imageMaxEdge}px /{' '}
                         {Math.round(PPTX_QUALITY_PRESETS.minimal.imageJpegQuality * 100)}% بدون سرد
                       </option>
+                    </select>
+                  </div>
+
+                  {/* PPTX deck language/direction */}
+                  <div className={styles.qualityRow}>
+                    <label className={styles.qualityLabel} htmlFor="pptx-direction">
+                      لغة العرض / اتجاه النص:
+                    </label>
+                    <select
+                      id="pptx-direction"
+                      className={styles.qualitySelect}
+                      value={pptxDirection}
+                      onChange={(e) => setPptxDirection(e.target.value as PptxDeckDirection)}
+                    >
+                      <option value="auto">تلقائي (كشف تلقائي من المحتوى)</option>
+                      <option value="ltr">English / إنجليزي (من اليسار لليمين)</option>
+                      <option value="rtl">عربي (من اليمين لليسار)</option>
                     </select>
                   </div>
 

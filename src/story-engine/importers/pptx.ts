@@ -302,12 +302,19 @@ const extractSolidColor = (
   return null;
 };
 
-/** Detect if text is primarily Arabic / RTL */
-const isPrimarilyArabic = (text: string): boolean => {
-  const arabic = (text.match(/[\u0600-\u06FF]/g) || []).length;
-  const latin = (text.match(/[A-Za-z]/g) || []).length;
-  return arabic > latin;
-};
+/**
+ * Arabic-script character ranges used for language detection. Includes Arabic
+ * letter marks/presentation forms and Quran verse ornaments (﴿﴾ U+FD3E/FD3F),
+ * which some exporters put around Quran passages.
+ */
+const ARABIC_RX = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/g;
+const LATIN_RX = /[A-Za-z]/g;
+
+const countArabic = (text: string): number => (text.match(ARABIC_RX) || []).length;
+const countLatin = (text: string): number => (text.match(LATIN_RX) || []).length;
+
+/** Replace curly braces with standard parens so Quran blocks read as framed text. */
+const bracesToParens = (text: string): string => text.replace(/\{/g, '(').replace(/\}/g, ')');
 
 /**
  * Map a PowerPoint <a:animEffect filter="..."> value to a builtin preset id.
@@ -488,9 +495,14 @@ export type PptxProgressCallback = (percent: number, message?: string) => void;
  */
 export type PptxQualityPreset = 'high' | 'balanced' | 'small' | 'minimal';
 
+/** Deck language override for PPTX import: 'auto' infers from text content. */
+export type PptxDeckDirection = 'auto' | 'ltr' | 'rtl';
+
 export interface PptxImportOptions {
   /** Named preset (overridden by any explicit field below) */
   preset?: PptxQualityPreset;
+  /** Force the deck's base text direction/alignment (default: auto-detect). */
+  deckDirection?: PptxDeckDirection;
   /** Max image edge in pixels (e.g. 1200, 800, 640) */
   imageMaxEdge?: number;
   /** JPEG quality 0.1–1 (only for opaque images) */
@@ -803,6 +815,31 @@ export const importPptxFromFile = async (
     throw new Error('لم يتم العثور على شرائح صالحة لاستيرادها من ملف الـ PowerPoint.');
   }
 
+  // >>> Deck-level language detection & slide XML cache <<<
+  // Read every slide's raw XML once (reused by the main loop below) and count
+  // Arabic vs Latin characters inside <a:t> runs, so paragraph defaults match
+  // the deck's dominant script instead of assuming every deck is Arabic-first.
+  // PowerPoint stores paragraph alignment/direction in <a:pPr> per paragraph —
+  // when that is absent we need to know whether the deck reads LTR or RTL.
+  const slideXmlCache = new Map<string, string | null>();
+  let deckArabicChars = 0;
+  let deckLatinChars = 0;
+  for (const slidePath of slideFileNames) {
+    const xmlText = (await zip.file(slidePath)?.async('string')) ?? null;
+    slideXmlCache.set(slidePath, xmlText);
+    if (!xmlText) continue;
+    const textRuns = xmlText.match(/<a:t[^>]*>([\s\S]*?)<\/a:t>/g) ?? [];
+    for (const run of textRuns) {
+      deckArabicChars += countArabic(run);
+      deckLatinChars += countLatin(run);
+    }
+  }
+  const deckOverride = options?.deckDirection;
+  let deckIsLtr: boolean;
+  if (deckOverride === 'ltr') deckIsLtr = true;
+  else if (deckOverride === 'rtl') deckIsLtr = false;
+  else deckIsLtr = deckLatinChars >= deckArabicChars;
+
   // Process slides (progress: 10% → 95%)
   for (let i = 0; i < totalSlides; i++) {
     const slidePath = slideFileNames[i];
@@ -811,7 +848,7 @@ export const importPptxFromFile = async (
     report(slideProgress, `جاري معالجة الشريحة ${i + 1} من ${totalSlides}...`);
 
     try {
-    const slideXmlText = await zip.file(slidePath)?.async('string');
+    const slideXmlText = slideXmlCache.get(slidePath) ?? null;
     
     if (!slideXmlText) continue;
 
@@ -1063,8 +1100,12 @@ export const importPptxFromFile = async (
             paragraphs.forEach((p) => {
               // Extract paragraph properties
               const pPr = getTag(p, 'pPr');
-              let align: 'left' | 'center' | 'right' | 'justify' = 'right';
-              let textDirection: 'ltr' | 'rtl' = 'rtl';
+              // Base defaults follow the deck's dominant script (auto-detected
+              // above). Explicit <a:pPr rtl="..."> / algn="..." still win later.
+              let align: 'left' | 'center' | 'right' | 'justify' = deckIsLtr ? 'left' : 'right';
+              let textDirection: 'ltr' | 'rtl' = deckIsLtr ? 'ltr' : 'rtl';
+              let alignExplicit = false;
+              let dirExplicit = false;
               let defaultFontSize = isTitleShape ? 36 : (isSubtitleShape ? 24 : 18);
               let defaultTextColor = (hasImageBackground || !isBgDark) ? '#1a1b1f' : '#ffffff';
               let defaultFontFamily = 'Cairo';
@@ -1072,14 +1113,20 @@ export const importPptxFromFile = async (
               // 1. Read paragraph-level properties
               if (pPr) {
                 const algnAttr = pPr.getAttribute('algn');
-                if (algnAttr === 'ctr') align = 'center';
-                else if (algnAttr === 'l') align = 'left';
-                else if (algnAttr === 'r') align = 'right';
-                else if (algnAttr === 'just') align = 'justify';
+                if (algnAttr) {
+                  alignExplicit = true;
+                  if (algnAttr === 'ctr') align = 'center';
+                  else if (algnAttr === 'l') align = 'left';
+                  else if (algnAttr === 'r') align = 'right';
+                  else if (algnAttr === 'just') align = 'justify';
+                }
 
                 const rtlAttr = pPr.getAttribute('rtl');
-                if (rtlAttr === '1' || rtlAttr === 'true') textDirection = 'rtl';
-                else if (rtlAttr === '0' || rtlAttr === 'false') textDirection = 'ltr';
+                if (rtlAttr !== null) {
+                  dirExplicit = true;
+                  if (rtlAttr === '1' || rtlAttr === 'true') textDirection = 'rtl';
+                  else if (rtlAttr === '0' || rtlAttr === 'false') textDirection = 'ltr';
+                }
 
                 // Check default run properties for paragraph
                 const defRPr = getTag(pPr, 'defRPr');
@@ -1140,7 +1187,8 @@ export const importPptxFromFile = async (
 
                 // Text Run (<a:r>) or Field Run (<a:fld>)
                 if (tag === 'r' || tag === 'fld') {
-                  const runText = getTag(childNode, 't')?.textContent || '';
+                  // Curly braces → standard parens so {آيات قرآنية} renders as (آيات قرآنية)
+                  const runText = bracesToParens(getTag(childNode, 't')?.textContent || '');
                   pText += runText;
                   if (runText) hasContent = true;
 
@@ -1208,9 +1256,19 @@ export const importPptxFromFile = async (
 
               if (!hasContent || !pText.trim()) return;
 
-              // Infer text direction from content when pptx rtl flag was absent
-              if (isPrimarilyArabic(pText)) textDirection = 'rtl';
-              else if (/[A-Za-z]/.test(pText) && !/[\u0600-\u06FF]/.test(pText)) textDirection = 'ltr';
+              // Infer text direction/alignment from content when the pptx didn't state it.
+              // Strongly mono-lingual paragraphs flip so an English story keeps its
+              // Arabic quotes isolated (and an Arabic story keeps Latin passages
+              // LTR). Mixed paragraphs (e.g. English + inline Quran verse) stay on
+              // the deck's default so English sentences render LTR/left.
+              const pArabic = countArabic(pText);
+              const pLatin = countLatin(pText);
+              if (pArabic > 0 && pLatin === 0) {
+                if (!dirExplicit) textDirection = 'rtl';
+                if (deckIsLtr && !alignExplicit) align = 'right';
+              } else if (pLatin > 0 && pArabic === 0) {
+                if (!dirExplicit) textDirection = 'ltr';
+              }
 
               // Calculate bounding height of this paragraph using line-wrapping estimation
               let totalLines = 0;
@@ -2140,24 +2198,16 @@ export const importPptxFromFile = async (
 
   report(100, 'اكتمل الاستيراد');
 
-  // Infer story language from extracted text (Arabic vs Latin)
-  let arabicChars = 0;
-  let latinChars = 0;
-  slides.forEach((s) => {
-    s.elements.forEach((el) => {
-      if (el.type === 'text') {
-        arabicChars += (el.text.match(/[\u0600-\u06FF]/g) || []).length;
-        latinChars += (el.text.match(/[A-Za-z]/g) || []).length;
-      }
-    });
-  });
-  const isArabicStory = arabicChars >= latinChars;
+  // Story language/direction comes from the deck-level XML pre-pass above, which
+  // counts every slide's text (not just extracted elements).
+  const language = deckIsLtr ? 'en' : 'ar';
+  const direction = deckIsLtr ? 'ltr' : 'rtl';
 
   return {
     id: `story-pptx-${Math.random().toString(36).substring(2, 9)}`,
     title: cleanTitle,
-    language: isArabicStory ? 'ar' : 'en',
-    direction: isArabicStory ? 'rtl' : 'ltr',
+    language,
+    direction,
     slides: slides,
   };
 };

@@ -130,6 +130,7 @@ const CanvasText: React.FC<{
       fill={el.color}
       fontStyle={fontStyle}
       align={el.align}
+      direction={el.dir}
       textDecoration={el.underline ? 'underline' : 'none'}
       rotation={el.rotation}
       opacity={el.opacity}

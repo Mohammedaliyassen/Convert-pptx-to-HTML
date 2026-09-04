@@ -11,6 +11,8 @@ export const GOOGLE_ARABIC_FONTS = [
   { id: 'Reem Kufi', name: 'Reem Kufi (كوفي متميز)' },
   { id: 'Alexandria', name: 'Alexandria (حديث)' },
   { id: 'Noto Sans Arabic', name: 'Noto Sans Arabic' },
+  { id: 'Amiri Quran', name: 'Amiri Quran (قرآن — حركات دقيقة)' },
+  { id: 'Noto Naskh Arabic', name: 'Noto Naskh Arabic (قرآن — نسخ)' },
 ];
 
 // Set of valid Google Font family names (case-insensitive search)
@@ -42,6 +44,8 @@ const VALID_GOOGLE_FONTS = new Set([
   'roboto',
   'open sans',
   'inter',
+  'amiri quran',
+  'noto naskh arabic',
 ]);
 
 // Mapping of non-Google fonts (e.g., PowerPoint standard Arabic fonts) to high-quality Google Fonts
@@ -55,6 +59,18 @@ const FONT_FALLBACK_MAP: Record<string, string> = {
   arial: 'Cairo',
   tahoma: 'Cairo',
   'times new roman': 'Amiri',
+  // Quran / naskh fonts (PPTX names) → web fonts that render harakat/diacritics well.
+  'amiri quran': 'Amiri Quran',
+  'noto naskh arabic': 'Noto Naskh Arabic',
+  scheherazade: 'Scheherazade New',
+  'uthmanic hafs': 'Amiri Quran',
+  'uthman taha': 'Amiri Quran',
+  'kfgqpc hafs': 'Amiri Quran',
+  'kfgqpc uthmanic': 'Amiri Quran',
+  'al quran': 'Amiri Quran',
+  'mushaf': 'Amiri Quran',
+  'noorehuda': 'Amiri Quran',
+  'noore hidayat': 'Amiri Quran',
 };
 
 // System/browser default font names that don't need Google Fonts loading
