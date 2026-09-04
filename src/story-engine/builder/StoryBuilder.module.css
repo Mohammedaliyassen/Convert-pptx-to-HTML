@@ -348,9 +348,12 @@
   color: #ffffff;
   padding: 8px 12px;
   font-size: 0.85rem;
+  line-height: 1.5;
   outline: none;
   resize: vertical;
-  min-height: 60px;
+  min-height: 90px;
+  max-height: 420px;
+  overflow-y: auto;
   font-family: inherit;
   transition: border-color 0.2s;
 }

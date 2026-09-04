@@ -161,6 +161,14 @@ export const PropertiesPanel: React.FC = () => {
                     onChange={(e) => handleTextChange(e.target.value)}
                     className={styles.textarea}
                     placeholder="اكتب شيئاً..."
+                    dir={isRTL ? 'rtl' : 'ltr'}
+                    rows={Math.min(
+                      16,
+                      Math.max(
+                        3,
+                        ((selectedElement as TextElement).text.match(/\n/g) || []).length + 1
+                      )
+                    )}
                   />
                 </div>
               </div>
