@@ -9,6 +9,7 @@ import { useStoryStore } from '../store/useStoryStore';
 import { applyAnimation, BUILTIN_PRESETS } from '../utils/animationEngine';
 import gsap from 'gsap';
 import { loadGoogleFont, getResolvedFontFamily } from '../utils/fontLoader';
+import { splitBidiRuns, detectDir } from '../utils/bidi';
 
 interface StoryPlayerProps {
   story: Story;
@@ -613,18 +614,33 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
             ? textEl.spans.map((span, i) => (
                 <span
                   key={i}
+                  dir={span.dir || detectDir(span.text) || textEl.dir}
                   style={{
                     color: span.color || undefined,
                     fontWeight: span.bold ? 'bold' : 'normal',
                     fontStyle: span.italic ? 'italic' : 'normal',
                     textDecoration: span.underline ? 'underline' : 'none',
                     fontSize: span.fontSize ? `${span.fontSize}px` : undefined,
+                    unicodeBidi: 'isolate',
                   }}
                 >
                   {span.text}
                 </span>
               ))
-            : textEl.text}
+            : (() => {
+                const runs = splitBidiRuns(textEl.text);
+                return runs.length > 1
+                  ? runs.map((run, i) => (
+                      <span
+                        key={i}
+                        dir={run.dir}
+                        style={{ unicodeBidi: 'isolate' }}
+                      >
+                        {run.text}
+                      </span>
+                    ))
+                  : textEl.text;
+              })()}
         </div>
       );
     }

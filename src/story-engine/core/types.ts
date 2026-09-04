@@ -51,6 +51,8 @@ export interface TextSpan {
   italic?: boolean;
   underline?: boolean;
   fontSize?: number;
+  /** Text direction of this run, so mixed Arabic/English spans isolate correctly. */
+  dir?: 'ltr' | 'rtl';
 }
 
 export interface ImageElement extends BaseElement {

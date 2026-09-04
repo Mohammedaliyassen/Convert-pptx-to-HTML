@@ -1,6 +1,7 @@
 import JSZip from 'jszip';
 import type { Story, Slide, StoryElement, TextElement, ImageElement, ClickTrigger, ClickAction } from '../core/types';
 import { compressImageToBase64 } from '../utils/imageCompressor';
+import { detectDir } from '../utils/bidi';
 
 // Helper to convert Blob to base64 Data URL (avoids FileReader when possible)
 const blobToDataURL = async (blob: Blob): Promise<string> => {
@@ -1123,6 +1124,7 @@ export const importPptxFromFile = async (
                 italic?: boolean;
                 underline?: boolean;
                 fontSize?: number;
+                dir?: 'ltr' | 'rtl';
               }[] = [];
 
               const children = Array.from(p.childNodes).filter((node) => node.nodeType === 1) as Element[];
@@ -1199,6 +1201,7 @@ export const importPptxFromFile = async (
                     italic: runItalic,
                     underline: runUnderline,
                     fontSize: runSize,
+                    dir: detectDir(runText),
                   });
                 }
               });
@@ -1227,8 +1230,10 @@ export const importPptxFromFile = async (
               if (effectiveRuns.length > 1) {
                 const spanColor = (r: (typeof runs)[number]) => r.color ?? defaultTextColor;
                 const spanKey = (r: (typeof runs)[number]) =>
-                  [spanColor(r), Boolean(r.bold), Boolean(r.italic), Boolean(r.underline), r.fontSize ?? 0].join('|');
+                  [spanColor(r), Boolean(r.bold), Boolean(r.italic), Boolean(r.underline), r.fontSize ?? 0, r.dir ?? detectDir(r.text)].join('|');
                 const baseKey = spanKey(effectiveRuns[0]);
+                // Build spans when runs differ in styling OR direction, so mixed
+                // Arabic/English paragraphs keep each run isolated and ordered.
                 const diverse = effectiveRuns.some((r) => spanKey(r) !== baseKey);
                 if (diverse) {
                   textSpans = effectiveRuns.map((r) => ({
@@ -1238,6 +1243,7 @@ export const importPptxFromFile = async (
                     italic: r.italic,
                     underline: r.underline,
                     fontSize: r.fontSize,
+                    dir: r.dir ?? detectDir(r.text),
                   }));
                 }
               }

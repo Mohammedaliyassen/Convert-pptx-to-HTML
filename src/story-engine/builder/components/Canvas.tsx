@@ -7,6 +7,7 @@ import styles from '../StoryBuilder.module.css';
 import { Minus, Plus, Maximize2 } from 'lucide-react';
 import { applyAnimation, BUILTIN_PRESETS } from '../../utils/animationEngine';
 import { loadGoogleFont } from '../../utils/fontLoader';
+import { toIsolatedText } from '../../utils/bidi';
 
 // Helper component to render images in Konva
 const CanvasImage: React.FC<{
@@ -123,7 +124,7 @@ const CanvasText: React.FC<{
       y={el.y}
       width={el.width}
       height={undefined}
-      text={el.text}
+      text={toIsolatedText(el.text)}
       fontSize={el.fontSize}
       fontFamily={el.fontFamily}
       fill={el.color}
