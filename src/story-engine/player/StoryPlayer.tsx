@@ -612,7 +612,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
         >
           {textEl.spans && textEl.spans.length > 0
             ? textEl.spans.map((span, i) => (
-                <span
+                <bdi
                   key={i}
                   dir={span.dir || detectDir(span.text) || textEl.dir}
                   style={{
@@ -625,21 +625,23 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
                   }}
                 >
                   {span.text}
-                </span>
+                </bdi>
               ))
             : (() => {
                 const runs = splitBidiRuns(textEl.text);
-                return runs.length > 1
-                  ? runs.map((run, i) => (
-                      <span
-                        key={i}
-                        dir={run.dir}
-                        style={{ unicodeBidi: 'isolate' }}
-                      >
-                        {run.text}
-                      </span>
-                    ))
-                  : textEl.text;
+                if (runs.length > 1) {
+                  return runs.map((run, i) => (
+                    <bdi key={i} dir={run.dir} style={{ unicodeBidi: 'isolate' }}>
+                      {run.text}
+                    </bdi>
+                  ));
+                }
+                const singleDir = runs[0]?.dir || textEl.dir;
+                return (
+                  <bdi dir={singleDir} style={{ unicodeBidi: 'isolate' }}>
+                    {textEl.text}
+                  </bdi>
+                );
               })()}
         </div>
       );

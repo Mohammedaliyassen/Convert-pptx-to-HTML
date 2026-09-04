@@ -25,10 +25,13 @@ export function detectDir(text: string): 'ltr' | 'rtl' {
 }
 
 /**
- * Split a string into consecutive directional runs. Each run is a maximal
- * substring of the same effective direction (Arabic -> rtl, everything else ltr).
- * Whitespace/punctuation are attached to the preceding run so a space between
- * two words doesn't create an empty gap; runs are isolated at the span level.
+ * Split a string into consecutive directional runs. Only strong directional
+ * characters (Arabic/Hebrew vs Latin letters) create a run boundary. Whitespace,
+ * punctuation and digits are treated as neutral: they are absorbed into the
+ * current run instead of forcing a new one. This keeps phrases like
+ * "المشهد السابع:مواجهة النمرود (الملك الجبار)" intact as a single run so the
+ * punctuation/parentheses stay anchored to the surrounding words instead of
+ * jumping to a separate isolated run.
  */
 export function splitBidiRuns(text: string): BidiRun[] {
   if (!text) return [];
@@ -45,15 +48,35 @@ export function splitBidiRuns(text: string): BidiRun[] {
   };
 
   for (const ch of text) {
-    const dir: 'ltr' | 'rtl' = detectDir(ch);
-    if (currentDir !== null && dir !== currentDir) {
+    const strong = strongDir(ch);
+    if (strong === null) {
+      // Neutral char (space, punctuation, digit): attach to current run.
+      current += ch;
+      continue;
+    }
+    if (currentDir !== null && strong !== currentDir) {
       push();
     }
-    currentDir = dir;
+    currentDir = strong;
     current += ch;
   }
   push();
   return runs;
+}
+
+/**
+ * Strong first-level direction of a single character: 'ltr' for Latin letters,
+ * 'rtl' for Arabic/Hebrew letters, or null for neutrals (whitespace, punctuation,
+ * digits) which do not establish direction on their own.
+ */
+function strongDir(ch: string): 'ltr' | 'rtl' | null {
+  if (/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\u0590-\u05FF\uFB1D-\uFB4F]/.test(ch)) {
+    return 'rtl';
+  }
+  if (/[A-Za-z\u00C0-\u024F]/.test(ch)) {
+    return 'ltr';
+  }
+  return null;
 }
 
 const LRI = '\u2066'; // LEFT-TO-RIGHT ISOLATE

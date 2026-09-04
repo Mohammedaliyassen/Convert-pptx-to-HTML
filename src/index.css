@@ -17,6 +17,15 @@ html, body, #root {
   box-sizing: border-box;
 }
 
+/* Bidirectional text safety: any element with an explicit `dir` is treated as
+   an isolated bidi embedding so embedded Latin words / numbers / punctuation
+   inside user-generated Arabic (or English) content render in their own logical
+   order instead of jumping to the wrong side. Deliberately targeted — do NOT
+   set `unicode-bidi: plaintext` globally as it would reorder layout controls. */
+[dir] {
+  unicode-bidi: isolate;
+}
+
 input, textarea, button, select {
   font-family: inherit;
 }
