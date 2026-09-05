@@ -10,6 +10,7 @@ import { applyAnimation, BUILTIN_PRESETS } from '../utils/animationEngine';
 import gsap from 'gsap';
 import { loadGoogleFont, getResolvedFontFamily } from '../utils/fontLoader';
 import { splitBidiRuns, detectDir } from '../utils/bidi';
+import { primeMedia, cachedMediaUrl, primeSlideMedia, clearMediaCache } from '../utils/mediaStore';
 
 interface StoryPlayerProps {
   story: Story;
@@ -73,8 +74,47 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
     return () => {
       window.removeEventListener('resize', handleResize);
       clearTimeout(timer);
+      clearMediaCache();
     };
   }, [handleResize]);
+
+  // Decode the current slide's images (base64 data URIs from the import) once
+  // into the media store and swap their srcs to instant blob URLs as each decode
+  // lands; nearby slides are warmed in the background. Revisits hit the store
+  // synchronously so navigation back is instant.
+  const [cachedUrls, setCachedUrls] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const slide = currentSlide;
+    if (!slide) return;
+    let mounted = true;
+    const items: Array<[string, string]> = [];
+    if (slide.background?.type === 'image' && slide.background.value) {
+      items.push([`${slide.id}:bg`, slide.background.value]);
+    }
+    slide.elements.forEach((el) => {
+      if (el.type === 'image' && el.src) items.push([`${slide.id}:${el.id}`, el.src]);
+    });
+    items.forEach(([key, raw]) => {
+      primeMedia(raw).then((url) => {
+        if (mounted && url) {
+          setCachedUrls((prev) => (prev[key] === url ? prev : { ...prev, [key]: url }));
+        }
+      });
+    });
+    const neighborIndexes = [currentSlideIndex + 1, currentSlideIndex + 2, currentSlideIndex - 1];
+    neighborIndexes.forEach((i) => {
+      if (i >= 0 && i < story.slides.length) primeSlideMedia(story.slides[i]);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, [currentSlideIndex, currentSlide, story.slides]);
+
+  // Resolve an image src: prefer the media store's synchronized object URL,
+  // then a freshly-decoded URL for this slide, then the raw base64/URL src.
+  const imageSrc = useCallback((raw: string | undefined, key: string): string => {
+    return cachedMediaUrl(raw ?? '') ?? cachedUrls[key] ?? raw ?? '';
+  }, [cachedUrls]);
 
   // Reset interactive visibility + stop click SFX whenever the slide changes
   useEffect(() => {
@@ -535,7 +575,7 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
     }
     if (background.type === 'image') {
       return {
-        backgroundImage: `url(${background.value})`,
+        backgroundImage: `url(${imageSrc(background.value, `${currentSlide.id}:bg`)})`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
       };
@@ -657,9 +697,10 @@ export const StoryPlayer: React.FC<StoryPlayerProps> = ({
         <img
           key={el.id}
           id={`player-el-${el.id}`}
-          src={imgEl.src}
+          src={imageSrc(imgEl.src, `${currentSlide.id}:${el.id}`)}
           alt=""
           draggable={false}
+          decoding="async"
           style={{
             ...style,
             objectFit: 'fill',
